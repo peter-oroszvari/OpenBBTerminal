@@ -1,10 +1,10 @@
 """ Interactive Broker Model """
 __docformat__ = "numpy"
 
-import logging
-
 import ftplib
+import logging
 from io import BytesIO
+
 import pandas as pd
 
 from openbb_terminal.decorators import log_start_end
@@ -21,7 +21,7 @@ def get_cost_to_borrow() -> pd.DataFrame:
     pd.DataFrame
         Cost to borrow
     """
-    ftp = ftplib.FTP("ftp3.interactivebrokers.com", "shortstock")
+    ftp = ftplib.FTP("ftp3.interactivebrokers.com", "shortstock")  # noqa: S321
 
     flo = BytesIO()
     ftp.retrbinary("RETR usa.txt", flo.write)

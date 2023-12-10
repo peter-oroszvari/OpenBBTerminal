@@ -1,9 +1,9 @@
 __pycache__/
-logs/
 *.pyc
 .DS_Store
 *.env
 .venv
+venv*/
 venv
 .vscode
 *.ipynb
@@ -12,6 +12,8 @@ venv/
 !notebooks/jupyter/.gitkeep
 .python-version
 .mypy_cache
+.ruff_cache
+.pytest_cache
 iframe_figures/
 exports/*
 .idea
@@ -39,30 +41,24 @@ website/functions
 *_sdk_audit.csv
 website/terminaltest
 !build/docker/compose.env
-
+openbb_terminal/core/plots/assets/plotly*.js
+.dccache
+*rome.json
+**/node_modules/*
 # pyinstaller artifacts
 *.pyo
-dist/*
+**/dist/*
 build/terminal
 build/nsis/app
 DMG/*
 *.dmg
+*.sh
 
-# Jupyter Lab Extension build files
-jupyterlab/**/build
-jupyterlab/*/*.bundle.*
-jupyterlab/*/lib/
-jupyterlab/*/*/labextension/
-jupyterlab/*/node_modules/
-jupyterlab/*/*/node_modules/
-jupyterlab/*/*.egg-info/
-jupyterlab/*/.ipynb_checkpoints
-jupyterlab/*/*.tsbuildinfo
-jupyterlab/*/ui-tests/test-results/
-jupyterlab/*/ui-tests/tests/*.ts-snapshots/
+# User settings for the SDK
+user_settings.json
 
 # User stylesheets
-styles/user
+openbb_terminal/miscellaneous/styles/user/hub.richstyle.json
 
 # the file containing the API keys for the web version
 openbb_terminal_web/setenv
@@ -73,3 +69,18 @@ darts_logs/
 # User data
 custom_imports/*.csv
 custom_imports/*/*.csv
+
+# cache
+cache/
+
+# lightning logs
+lightning_logs/
+
+# testing artifacts
+*/mocked_path
+
+# CA certificates
+*.pem
+
+# Platform auto generated files
+openbb_platform/openbb/package/*

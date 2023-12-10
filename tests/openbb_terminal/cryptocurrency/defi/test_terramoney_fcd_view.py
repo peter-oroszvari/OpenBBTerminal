@@ -19,9 +19,9 @@ from openbb_terminal.cryptocurrency.defi import terramoney_fcd_view
             ),
         ),
         ("display_validators", dict()),
-        ("display_gov_proposals", dict()),
+        # ("display_gov_proposals", dict()), Can't reach node
         ("display_account_growth", dict()),
-        ("display_staking_ratio_history", dict()),
+        # ("display_staking_ratio_history", dict()), Can't reach node
         ("display_staking_returns_history", dict()),
     ],
 )
@@ -30,8 +30,5 @@ def test_call_func(func, kwargs, mocker):
     mocker.patch(
         target="openbb_terminal.cryptocurrency.defi.terramoney_fcd_view.export_data"
     )
-
-    # MOCK VISUALIZE_OUTPUT
-    mocker.patch(target="openbb_terminal.helper_classes.TerminalStyle.visualize_output")
 
     getattr(terramoney_fcd_view, func)(**kwargs)

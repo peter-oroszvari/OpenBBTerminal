@@ -8,7 +8,7 @@ from openbb_terminal.core.log.generation.settings import (
 
 def test_aws_settings():
     aws_access_key_id = "MOCK_AWS_ACCESS_KEY_ID"
-    aws_secret_access_key = "MOCK_AWS_SECRET_ACCESS_KEY"
+    aws_secret_access_key = "MOCK_AWS_SECRET_ACCESS_KEY"  # noqa: S105
 
     aws_settings = AWSSettings(
         aws_access_key_id=aws_access_key_id,
@@ -24,12 +24,14 @@ def test_app_settings():
     commit_hash = "MOCK_COMMIT_HASH"
     session_id = "MOCK_SESSION_ID"
     identifier = "MOCK_IDENTIFIER"
+    user_id = "MOCK_USER_ID"
 
     app_settings = AppSettings(
         name=name,
         commit_hash=commit_hash,
         session_id=session_id,
         identifier=identifier,
+        user_id=user_id,
     )
 
     assert app_settings.name == name
@@ -41,7 +43,7 @@ def test_app_settings():
 def test_log_settings(tmp_path):
     directory = tmp_path
     frequency = "MOCK_FREQUENCY"
-    handler_list = "MOCK_HANDLER_LIST"
+    handler_list = ["MOCK_HANDLER_LIST"]
     rolling_clock = "MOCK_ROLLING_CLOCK"
     verbosity = 20
 
@@ -63,7 +65,7 @@ def test_log_settings(tmp_path):
 def test_settings(tmp_path):
     directory = tmp_path
     frequency = "MOCK_FREQUENCY"
-    handler_list = "MOCK_HANDLER_LIST"
+    handler_list = ["MOCK_HANDLER_LIST"]
     rolling_clock = "MOCK_ROLLING_CLOCK"
     verbosity = 20
     log_settings = LogSettings(
@@ -78,15 +80,17 @@ def test_settings(tmp_path):
     commit_hash = "MOCK_COMMIT_HASH"
     session_id = "MOCK_SESSION_ID"
     identifier = "MOCK_IDENTIFIER"
+    user_id = "MOCK_USER_ID"
     app_settings = AppSettings(
         name=name,
         commit_hash=commit_hash,
         session_id=session_id,
         identifier=identifier,
+        user_id=user_id,
     )
 
     aws_access_key_id = "MOCK_AWS_ACCESS_KEY_ID"
-    aws_secret_access_key = "MOCK_AWS_SECRET_ACCESS_KEY"
+    aws_secret_access_key = "MOCK_AWS_SECRET_ACCESS_KEY"  # noqa: S105
     aws_settings = AWSSettings(
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,

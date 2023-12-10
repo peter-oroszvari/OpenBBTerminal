@@ -5,29 +5,25 @@ __docformat__ = "numpy"
 # flake8: noqa: E501
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import date
-
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
-from numpy.typing import NDArray
-from numpy import floating
 import pandas as pd
 import riskfolio as rp
-from dateutil.relativedelta import relativedelta, FR
-import yfinance as yf
+from dateutil.relativedelta import FR, relativedelta
+from numpy import floating
+from numpy.typing import NDArray
 from scipy.interpolate import interp1d
 
 from openbb_terminal.decorators import log_start_end
-from openbb_terminal.portfolio.portfolio_optimization import (
-    yahoo_finance_model,
-)
+from openbb_terminal.portfolio.portfolio_optimization import yahoo_finance_model
 from openbb_terminal.portfolio.portfolio_optimization.optimizer_helper import (
     get_kwarg,
     validate_risk_measure,
-    valid_property_infos,
 )
 from openbb_terminal.rich_config import console
+from openbb_terminal.stocks.fundamental_analysis import fmp_model
 
 logger = logging.getLogger(__name__)
 
@@ -145,15 +141,14 @@ def d_period(interval: str = "1y", start_date: str = "", end_date: str = ""):
     if start_date == "":
         if interval in extra_choices:
             p = extra_choices[interval]
-        else:
-            if interval[-1] == "d":
-                p = "[" + interval[:-1] + " Days]"
-            elif interval[-1] == "w":
-                p = "[" + interval[:-1] + " Weeks]"
-            elif interval[-1] == "o":
-                p = "[" + interval[:-2] + " Months]"
-            elif interval[-1] == "y":
-                p = "[" + interval[:-1] + " Years]"
+        elif interval[-1] == "d":
+            p = "[" + interval[:-1] + " Days]"
+        elif interval[-1] == "w":
+            p = "[" + interval[:-1] + " Weeks]"
+        elif interval[-1] == "o":
+            p = "[" + interval[:-2] + " Months]"
+        elif interval[-1] == "y":
+            p = "[" + interval[:-1] + " Years]"
         if p[1:3] == "1 ":
             p = p.replace("s", "")
     else:
@@ -238,7 +233,7 @@ def get_property_weights(
     symbols: List[str],
     **kwargs,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[pd.DataFrame]]:
-    """Calculate portfolio weights based on selected property
+    """Calculate portfolio weights based on selected property, currently this is only market cap.
 
     Parameters
     ----------
@@ -267,8 +262,6 @@ def get_property_weights(
         Value used to replace outliers that are higher to threshold.
     method: str
         Method used to fill nan values. Default value is 'time'. For more information see `interpolate <https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.interpolate.html>`__.
-    s_property : str
-        Property to weight portfolio by
     value : float, optional
         Amount of money to allocate
 
@@ -288,8 +281,6 @@ def get_property_weights(
     method = get_kwarg("method", kwargs)
     value = get_kwarg("value", kwargs)
 
-    s_property = get_kwarg("s_property", kwargs, default="marketCap")
-
     stock_prices = yahoo_finance_model.process_stocks(
         symbols, interval, start_date, end_date
     )
@@ -303,21 +294,69 @@ def get_property_weights(
     )
 
     prop = {}
+    no_data = []
     prop_sum = 0
     for stock in symbols:
-        stock_prop = yf.Ticker(stock).info[s_property]
-        if stock_prop is None:
-            stock_prop = 0
+        stock_prop = get_market_cap(stock)
         prop[stock] = stock_prop
         prop_sum += stock_prop
 
+        if not prop[stock]:
+            no_data.append(stock)
+
     if prop_sum == 0:
-        console.print(f"No {s_property} was found on list of tickers provided", "\n")
+        console.print(
+            "No market cap data has been found for all selected tickers. Not able to optimize the portfolio.",
+            "\n",
+        )
         return None, None
+    if no_data:
+        console.print(
+            "No market cap data has been found for the following tickers: "
+            + ", ".join(no_data)
+            + ". Therefore, these will be excluded from the optimization process.",
+            "\n",
+        )
 
     weights = {k: value * v / prop_sum for k, v in prop.items()}
 
     return weights, stock_returns
+
+
+@log_start_end(log=logger)
+def get_market_cap(symbol) -> float:
+    """Get market cap from FinancialModelingPrep
+
+    Parameters
+    ----------
+    symbol : str
+        Stock ticker
+
+    Returns
+    -------
+    updated_value : float
+        value of market cap
+    """
+    market_cap = fmp_model.get_enterprise(symbol)
+
+    if not market_cap.empty:
+        latest_year = market_cap.index[-1]
+
+        value = market_cap.loc[latest_year]["Market capitalization"]
+        values_str = str(value)
+
+        # use values_str in string operations
+        if values_str.endswith("M"):
+            updated_value = float(values_str.split(" M", maxsplit=1)[0]) * 1000000
+        elif values_str.endswith("B"):
+            updated_value = float(values_str.split(" B", maxsplit=1)[0]) * 1000000000
+        elif values_str.endswith("T"):
+            updated_value = float(values_str.split(" T", maxsplit=1)[0]) * 1000000000000
+        else:
+            updated_value = float(values_str)
+    else:
+        updated_value = 0
+    return updated_value
 
 
 @log_start_end(log=logger)
@@ -1206,7 +1245,6 @@ def get_max_decorrelation_portfolio(
     )
 
     try:
-
         # Building the portfolio object
         port = rp.Portfolio(returns=stock_returns)
 
@@ -1233,10 +1271,7 @@ def get_max_decorrelation_portfolio(
     if weights is not None:
         weights = weights.round(5)
 
-        if len(weights) > 1:
-            weights = weights.squeeze().to_dict()
-        else:
-            weights = weights.to_dict()
+        weights = weights.squeeze().to_dict() if len(weights) > 1 else weights.to_dict()
 
     return weights, stock_returns
 
@@ -1365,9 +1400,11 @@ def get_black_litterman_portfolio(
             maxnan=maxnan,
             threshold=threshold,
             method=method,
-            s_property="marketCap",
             value=value,
         )
+
+    if benchmark is None:
+        return None, stock_returns
 
     factor = time_factor[freq.upper()]
     risk_free_rate = risk_free_rate / factor
@@ -2836,10 +2873,7 @@ def black_litterman(
         delta = (a - risk_free_rate) / (benchmark.T @ S @ benchmark)
         delta = delta.item()
 
-    if equilibrium:
-        PI_eq = delta * (S @ benchmark)
-    else:
-        PI_eq = mu - risk_free_rate
+    PI_eq = delta * (S @ benchmark) if equilibrium else mu - risk_free_rate
 
     flag = False
     if p_views is None or q_views is None:
@@ -2920,18 +2954,6 @@ def generate_random_portfolios(
         w = value * w
 
     return w
-
-
-@log_start_end(log=logger)
-def get_properties() -> List[str]:
-    """Get properties to use on property optimization.
-
-    Returns
-    -------
-    List[str]:
-        List of available properties to use on property optimization.
-    """
-    return valid_property_infos
 
 
 @log_start_end(log=logger)

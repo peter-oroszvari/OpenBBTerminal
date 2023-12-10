@@ -1,10 +1,15 @@
 # IMPORTATION STANDARD
+
 import os
 
 # IMPORTATION THIRDPARTY
 import pytest
 
 # IMPORTATION INTERNAL
+from openbb_terminal.core.session.current_user import (
+    PreferencesModel,
+    copy_user,
+)
 from openbb_terminal.cryptocurrency.defi import defi_controller
 
 # pylint: disable=E1101
@@ -38,9 +43,11 @@ def test_menu_without_queue_completion(mocker):
     path_controller = "openbb_terminal.cryptocurrency.defi.defi_controller"
 
     # ENABLE AUTO-COMPLETION : HELPER_FUNCS.MENU
+    preferences = PreferencesModel(USE_PROMPT_TOOLKIT=True)
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.USE_PROMPT_TOOLKIT",
-        new=True,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
     mocker.patch(
         target="openbb_terminal.parent_classes.session",
@@ -51,10 +58,11 @@ def test_menu_without_queue_completion(mocker):
     )
 
     # DISABLE AUTO-COMPLETION : CONTROLLER.COMPLETER
-    mocker.patch.object(
-        target=defi_controller.obbff,
-        attribute="USE_PROMPT_TOOLKIT",
-        new=True,
+    preferences = PreferencesModel(USE_PROMPT_TOOLKIT=True)
+    mock_current_user = copy_user(preferences=preferences)
+    mocker.patch(
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
     mocker.patch(
         target=f"{path_controller}.session",
@@ -78,10 +86,11 @@ def test_menu_without_queue_sys_exit(mock_input, mocker):
     path_controller = "openbb_terminal.cryptocurrency.defi.defi_controller"
 
     # DISABLE AUTO-COMPLETION
-    mocker.patch.object(
-        target=defi_controller.obbff,
-        attribute="USE_PROMPT_TOOLKIT",
-        new=False,
+    preferences = PreferencesModel(USE_PROMPT_TOOLKIT=True)
+    mock_current_user = copy_user(preferences=preferences)
+    mocker.patch(
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
     mocker.patch(
         target=f"{path_controller}.session",
@@ -258,41 +267,6 @@ def test_call_func_expect_queue(expected_queue, func, queue):
             "call_newsletter",
             [],
             "substack_view.display_newsletters",
-            [],
-            dict(),
-        ),
-        (
-            "call_tokens",
-            [],
-            "graph_view.display_uni_tokens",
-            [],
-            dict(),
-        ),
-        (
-            "call_stats",
-            [],
-            "graph_view.display_uni_stats",
-            [],
-            dict(),
-        ),
-        (
-            "call_pairs",
-            [],
-            "graph_view.display_recently_added",
-            [],
-            dict(),
-        ),
-        (
-            "call_pools",
-            [],
-            "graph_view.display_uni_pools",
-            [],
-            dict(),
-        ),
-        (
-            "call_swaps",
-            [],
-            "graph_view.display_last_uni_swaps",
             [],
             dict(),
         ),

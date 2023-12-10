@@ -5,24 +5,21 @@ __docformat__ = "numpy"
 
 import argparse
 import logging
-from typing import List
+from typing import List, Optional
 
-from openbb_terminal.custom_prompt_toolkit import NestedCompleter
-
-from openbb_terminal import feature_flags as obbff
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.cryptocurrency.defi import (
     coindix_model,
     coindix_view,
     cryptosaurio_view,
-    graph_model,
-    graph_view,
     llama_model,
     llama_view,
+    smartstake_view,
     substack_view,
     terramoney_fcd_model,
     terramoney_fcd_view,
-    smartstake_view,
 )
+from openbb_terminal.custom_prompt_toolkit import NestedCompleter
 from openbb_terminal.decorators import log_start_end
 from openbb_terminal.helper_funcs import (
     EXPORT_BOTH_RAW_DATA_AND_FIGURES,
@@ -32,7 +29,7 @@ from openbb_terminal.helper_funcs import (
 )
 from openbb_terminal.menu import session
 from openbb_terminal.parent_classes import BaseController
-from openbb_terminal.rich_config import console, MenuText
+from openbb_terminal.rich_config import MenuText, console
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +43,6 @@ class DefiController(BaseController):
         "stvl",
         "dtvl",
         "newsletter",
-        "tokens",
-        "pairs",
-        "pools",
-        "swaps",
-        "stats",
         "vaults",
         "sinfo",
         "validators",
@@ -63,11 +55,11 @@ class DefiController(BaseController):
     PATH = "/crypto/defi/"
     CHOICES_GENERATION = True
 
-    def __init__(self, queue: List[str] = None):
+    def __init__(self, queue: Optional[List[str]] = None):
         """Constructor"""
         super().__init__(queue)
 
-        if session and obbff.USE_PROMPT_TOOLKIT:
+        if session and get_current_user().preferences.USE_PROMPT_TOOLKIT:
             choices: dict = self.choices_default
 
             self.completer = NestedCompleter.from_nested_dict(choices)
@@ -77,11 +69,6 @@ class DefiController(BaseController):
         mt = MenuText("crypto/defi/")
         mt.add_cmd("newsletter")
         mt.add_cmd("vaults")
-        mt.add_cmd("tokens")
-        mt.add_cmd("stats")
-        mt.add_cmd("pairs")
-        mt.add_cmd("pools")
-        mt.add_cmd("swaps")
         mt.add_cmd("ldapps")
         mt.add_cmd("gdapps")
         mt.add_cmd("stvl")
@@ -121,7 +108,7 @@ class DefiController(BaseController):
             default=False,
         )
 
-        if other_args and not other_args[0][0] == "-":
+        if other_args and other_args[0][0] != "-":
             other_args.insert(0, "--address")
 
         ns_parser = self.parse_known_args_and_warn(
@@ -166,7 +153,7 @@ class DefiController(BaseController):
             default=10,
         )
 
-        if other_args and not other_args[0][0] == "-":
+        if other_args and other_args[0][0] != "-":
             other_args.insert(0, "-a")
 
         ns_parser = self.parse_known_args_and_warn(
@@ -328,9 +315,9 @@ class DefiController(BaseController):
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             prog="sreturn",
             description="""
-                 Displays terra blockchain staking returns history.
-                 [Source: https://fcd.terra.dev/swagger]
-             """,
+                Displays terra blockchain staking returns history.
+                [Source: https://fcd.terra.dev/swagger]
+            """,
         )
         parser.add_argument(
             "-l",
@@ -398,19 +385,25 @@ class DefiController(BaseController):
             "-d",
             "--dapps",
             dest="dapps",
-            type=str,
+            choices=["anchor", "sushiswap", "pancakeswap"],
             required="-h" not in other_args,
             help="dApps to search historical TVL. Should be split by , e.g.: anchor,sushiswap,pancakeswap",
         )
-        if other_args and not other_args[0][0] == "-":
+        if other_args and other_args[0][0] != "-":
             other_args.insert(0, "-d")
 
         ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
+            parser, other_args, EXPORT_BOTH_RAW_DATA_AND_FIGURES
         )
 
         if ns_parser:
-            llama_view.display_historical_tvl(dapps=ns_parser.dapps)
+            llama_view.display_historical_tvl(
+                dapps=ns_parser.dapps,
+                export=ns_parser.export,
+                sheet_name=" ".join(ns_parser.sheet_name)
+                if ns_parser.sheet_name
+                else None,
+            )
 
     @log_start_end(log=logger)
     def call_ldapps(self, other_args: List[str]):
@@ -453,6 +446,7 @@ class DefiController(BaseController):
                 "Only works when raw data is displayed."
             ),
         )
+
         parser.add_argument(
             "--desc",
             action="store_true",
@@ -546,298 +540,8 @@ class DefiController(BaseController):
             )
 
     @log_start_end(log=logger)
-    def call_tokens(self, other_args: List[str]):
-        """Process tokens command"""
-        parser = argparse.ArgumentParser(
-            add_help=False,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            prog="tokens",
-            description="""
-                Display tokens trade-able on Uniswap DEX
-                [Source: https://thegraph.com/en/]
-            """,
-        )
-
-        parser.add_argument(
-            "--skip",
-            dest="skip",
-            type=check_positive,
-            help="Number of records to skip",
-            default=0,
-            choices=range(1, 1000),
-            metavar="SKIP",
-        )
-        parser.add_argument(
-            "--limit",
-            dest="limit",
-            type=check_positive,
-            help="Number of records to display",
-            default=20,
-        )
-        parser.add_argument(
-            "-s",
-            "--sort",
-            dest="sortby",
-            type=str,
-            help="Sort by given column. Default: index",
-            default="index",
-            choices=graph_model.TOKENS_FILTERS,
-        )
-        parser.add_argument(
-            "-r",
-            "--reverse",
-            action="store_true",
-            dest="reverse",
-            default=False,
-            help=(
-                "Data is sorted in descending order by default. "
-                "Reverse flag will sort it in an ascending way. "
-                "Only works when raw data is displayed."
-            ),
-        )
-        ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
-        )
-        if ns_parser:
-            graph_view.display_uni_tokens(
-                skip=ns_parser.skip,
-                limit=ns_parser.limit,
-                sortby=ns_parser.sortby,
-                ascend=ns_parser.reverse,
-                export=ns_parser.export,
-                sheet_name=" ".join(ns_parser.sheet_name)
-                if ns_parser.sheet_name
-                else None,
-            )
-
-    @log_start_end(log=logger)
-    def call_stats(self, other_args: List[str]):
-        """Process stats command"""
-        parser = argparse.ArgumentParser(
-            add_help=False,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            prog="stats",
-            description="""
-                 Display base statistics about Uniswap DEX.
-                 [Source: https://thegraph.com/en/]
-             """,
-        )
-
-        ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
-        )
-
-        if ns_parser:
-            graph_view.display_uni_stats(
-                export=ns_parser.export,
-                sheet_name=" ".join(ns_parser.sheet_name)
-                if ns_parser.sheet_name
-                else None,
-            )
-
-    @log_start_end(log=logger)
-    def call_pairs(self, other_args: List[str]):
-        """Process pairs command"""
-        parser = argparse.ArgumentParser(
-            add_help=False,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            prog="pairs",
-            description="""
-                Displays Lastly added pairs on Uniswap DEX.
-                [Source: https://thegraph.com/en/]
-            """,
-        )
-        parser.add_argument(
-            "-l",
-            "--limit",
-            dest="limit",
-            type=check_positive,
-            help="Number of records to display",
-            default=10,
-        )
-        parser.add_argument(
-            "-v",
-            "--vol",
-            dest="vol",
-            type=check_positive,
-            help="Minimum trading volume",
-            default=100,
-            choices=range(1, 1000),
-            metavar="VOL",
-        )
-        parser.add_argument(
-            "-tx",
-            "--tx",
-            dest="tx",
-            type=check_positive,
-            help="Minimum number of transactions",
-            default=100,
-            choices=range(1, 1000),
-            metavar="TX",
-        )
-        parser.add_argument(
-            "--days",
-            dest="days",
-            type=check_positive,
-            help="Number of days the pair has been active,",
-            default=10,
-            choices=range(1, 1000),
-            metavar="DAY",
-        )
-        parser.add_argument(
-            "-s",
-            "--sort",
-            dest="sortby",
-            type=str,
-            help="Sort by given column. Default: created",
-            default="created",
-            choices=graph_model.PAIRS_FILTERS,
-        )
-        parser.add_argument(
-            "-r",
-            "--reverse",
-            action="store_true",
-            dest="reverse",
-            default=False,
-            help=(
-                "Data is sorted in descending order by default. "
-                "Reverse flag will sort it in an ascending way. "
-                "Only works when raw data is displayed."
-            ),
-        )
-        ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
-        )
-
-        if ns_parser:
-            graph_view.display_recently_added(
-                limit=ns_parser.limit,
-                days=ns_parser.days,
-                min_volume=ns_parser.vol,
-                min_tx=ns_parser.tx,
-                sortby=ns_parser.sortby,
-                ascend=ns_parser.reverse,
-                export=ns_parser.export,
-                sheet_name=" ".join(ns_parser.sheet_name)
-                if ns_parser.sheet_name
-                else None,
-            )
-
-    @log_start_end(log=logger)
-    def call_pools(self, other_args: List[str]):
-        """Process pools command"""
-        parser = argparse.ArgumentParser(
-            add_help=False,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            prog="pairs",
-            description="""
-                Display uniswap pools by volume.
-                [Source: https://thegraph.com/en/]
-            """,
-        )
-        parser.add_argument(
-            "-l",
-            "--limit",
-            dest="limit",
-            type=check_positive,
-            help="Number of records to display",
-            default=10,
-        )
-        parser.add_argument(
-            "-s",
-            "--sort",
-            dest="sortby",
-            type=str,
-            help="Sort by given column. Default: volumeUSD",
-            default="volumeUSD",
-            choices=graph_model.POOLS_FILTERS,
-        )
-        parser.add_argument(
-            "-r",
-            "--reverse",
-            action="store_true",
-            dest="reverse",
-            default=False,
-            help=(
-                "Data is sorted in descending order by default. "
-                "Reverse flag will sort it in an ascending way. "
-                "Only works when raw data is displayed."
-            ),
-        )
-        ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
-        )
-
-        if ns_parser:
-            graph_view.display_uni_pools(
-                limit=ns_parser.limit,
-                sortby=ns_parser.sortby,
-                ascend=ns_parser.reverse,
-                export=ns_parser.export,
-                sheet_name=" ".join(ns_parser.sheet_name)
-                if ns_parser.sheet_name
-                else None,
-            )
-
-    @log_start_end(log=logger)
-    def call_swaps(self, other_args: List[str]):
-        """Process swaps command"""
-        parser = argparse.ArgumentParser(
-            add_help=False,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            prog="pairs",
-            description="""
-                Display last swaps done on Uniswap DEX.
-                [Source: https://thegraph.com/en/]
-            """,
-        )
-        parser.add_argument(
-            "-l",
-            "--limit",
-            dest="limit",
-            type=check_positive,
-            help="Number of records to display",
-            default=10,
-        )
-        parser.add_argument(
-            "-s",
-            "--sort",
-            dest="sortby",
-            type=str,
-            help="Sort by given column. Default: timestamp",
-            default="Datetime",
-            choices=graph_model.SWAPS_FILTERS,
-        )
-        parser.add_argument(
-            "-r",
-            "--reverse",
-            action="store_true",
-            dest="reverse",
-            default=False,
-            help=(
-                "Data is sorted in descending order by default. "
-                "Reverse flag will sort it in an ascending way. "
-                "Only works when raw data is displayed."
-            ),
-        )
-        ns_parser = self.parse_known_args_and_warn(
-            parser, other_args, EXPORT_ONLY_RAW_DATA_ALLOWED
-        )
-
-        if ns_parser:
-            graph_view.display_last_uni_swaps(
-                limit=ns_parser.limit,
-                sortby=ns_parser.sortby,
-                ascend=ns_parser.reverse,
-                export=ns_parser.export,
-                sheet_name=" ".join(ns_parser.sheet_name)
-                if ns_parser.sheet_name
-                else None,
-            )
-
-    @log_start_end(log=logger)
     def call_vaults(self, other_args: List[str]):
-        """Process swaps command"""
+        """Process vaults command"""
         parser = argparse.ArgumentParser(
             add_help=False,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,

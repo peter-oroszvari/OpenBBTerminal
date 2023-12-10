@@ -14,6 +14,7 @@ app_settings = AppSettings(
     name="MOCK_COMMIT_HASH",
     identifier="MOCK_COMMIT_HASH",
     session_id="MOCK_SESSION_ID",
+    user_id="MOCK_USER_ID",
 )
 formatter = FormatterWithExceptions(app_settings)
 
@@ -62,7 +63,7 @@ def test_format(mocker):
     mock.levelname = ""
     mock.created = 6
     mock.name = "Hello"
-    mock.getMessage = lambda: "aeffew" or "3232432423"
+    mock.getMessage = lambda: "aeffew"
     mock.stack_info = "info"
     value = formatter.format(mock)
     assert value

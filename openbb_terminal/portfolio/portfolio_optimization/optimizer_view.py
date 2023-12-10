@@ -4,23 +4,27 @@ __docformat__ = "numpy"
 # pylint: disable=R0913, R0914, C0302, too-many-branches, too-many-statements, line-too-long
 # flake8: noqa: E501
 
+# IMPORTS STANDARD
 import logging
 import math
 import warnings
 from datetime import date
 from typing import Any, Dict, List, Optional
 
+# IMPORTS THIRD-PARTY
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import riskfolio as rp
-from dateutil.relativedelta import relativedelta, FR
+from dateutil.relativedelta import FR, relativedelta
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 
-from openbb_terminal.config_plot import PLOT_DPI
 from openbb_terminal.config_terminal import theme
+
+# IMPORTS INTERNAL
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.decorators import log_start_end
 from openbb_terminal.helper_funcs import plot_autoscale, print_rich_table
 from openbb_terminal.portfolio.portfolio_optimization import (
@@ -131,15 +135,14 @@ def d_period(interval: str = "1y", start_date: str = "", end_date: str = ""):
     if start_date == "":
         if interval in extra_choices:
             p = extra_choices[interval]
-        else:
-            if interval[-1] == "d":
-                p = "[" + interval[:-1] + " Days]"
-            elif interval[-1] == "w":
-                p = "[" + interval[:-1] + " Weeks]"
-            elif interval[-1] == "o":
-                p = "[" + interval[:-2] + " Months]"
-            elif interval[-1] == "y":
-                p = "[" + interval[:-1] + " Years]"
+        elif interval[-1] == "d":
+            p = "[" + interval[:-1] + " Days]"
+        elif interval[-1] == "w":
+            p = "[" + interval[:-1] + " Weeks]"
+        elif interval[-1] == "o":
+            p = "[" + interval[:-2] + " Months]"
+        elif interval[-1] == "y":
+            p = "[" + interval[:-1] + " Years]"
         if p[1:3] == "1 ":
             p = p.replace("s", "")
     else:
@@ -162,8 +165,8 @@ def portfolio_performance(
     risk_free_rate: float = 0,
     alpha: float = 0.05,
     a_sim: float = 100,
-    beta: float = None,
-    b_sim: float = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[float] = None,
 ):
     """
     Prints portfolio performance indicators
@@ -237,9 +240,9 @@ def portfolio_performance(
         factor_1 = str(int(time_factor[freq])) + ") "
         factor_2 = "√" + factor_1
 
-        print("\nAnnual (by " + factor_1 + f"expected return: {100 * mu:.2f}%")
-        print("Annual (by " + factor_2 + f"volatility: {100 * sigma:.2f}%")
-        print(f"Sharpe ratio: {sharpe:.4f}")
+        console.print("\nAnnual (by " + factor_1 + f"expected return: {100 * mu:.2f}%")
+        console.print("Annual (by " + factor_2 + f"volatility: {100 * sigma:.2f}%")
+        console.print(f"Sharpe ratio: {sharpe:.4f}")
 
         if risk_measure != "MV":
             risk = rp.Sharpe_Risk(
@@ -271,7 +274,7 @@ def portfolio_performance(
 
             if risk_measure in drawdowns:
                 sharpe_2 = (mu - risk_free_rate) / risk
-                print(
+                console.print(
                     risk_names[risk_measure.lower()].capitalize()
                     + " : "
                     + f"{100 * risk:.2f}%"
@@ -279,7 +282,7 @@ def portfolio_performance(
             else:
                 risk = risk * time_factor[freq] ** 0.5
                 sharpe_2 = (mu - risk_free_rate) / risk
-                print(
+                console.print(
                     "Annual (by "
                     + factor_2
                     + risk_names[risk_measure.lower()]
@@ -287,7 +290,7 @@ def portfolio_performance(
                     + f"{100 * risk:.2f}%"
                 )
 
-            print(
+            console.print(
                 "Return / "
                 + risk_names[risk_measure.lower()]
                 + f" ratio: {sharpe_2:.4f}"
@@ -620,7 +623,6 @@ def display_equal_weight(
 ) -> Dict:
     """
     Equally weighted portfolio, where weight = 1/# of symbols
-
     Parameters
     ----------
     symbols : List[str]
@@ -641,7 +643,6 @@ def display_equal_weight(
         - 'D' for daily returns.
         - 'W' for weekly returns.
         - 'M' for monthly returns.
-
     maxnan: float, optional
         Max percentage of nan values accepted per asset to be included in
         returns.
@@ -652,7 +653,6 @@ def display_equal_weight(
     risk_measure: str, optional
         The risk measure used to optimize the portfolio.
         The default is 'MV'. Possible values are:
-
         - 'MV': Standard Deviation.
         - 'MAD': Mean Absolute Deviation.
         - 'MSV': Semi Standard Deviation.
@@ -666,7 +666,6 @@ def display_equal_weight(
         - 'CDaR': Conditional Drawdown at Risk of uncompounded cumulative returns.
         - 'EDaR': Entropic Drawdown at Risk of uncompounded cumulative returns.
         - 'MDD': Maximum Drawdown of uncompounded cumulative returns.
-
     risk_free_rate: float, optional
         Risk free rate, must be in the same interval of assets returns. Used for
         'FLPM' and 'SLPM' and Sharpe objective function. The default is 0.
@@ -726,7 +725,6 @@ def display_property_weighting(
     maxnan: float = 0.05,
     threshold: float = 0,
     method: str = "time",
-    s_property: str = "marketCap",
     risk_measure: str = "mv",
     risk_free_rate: float = 0,
     alpha: float = 0.05,
@@ -795,7 +793,7 @@ def display_property_weighting(
         True if plot table weights, by default False
     """
     p = d_period(interval, start_date, end_date)
-    s_title = f"{p} Weighted Portfolio based on " + s_property + "\n"
+    s_title = f"{p} Weighted Portfolio based on Market Cap \n"
 
     weights, stock_returns = optimizer_model.get_property_weights(
         symbols=symbols,
@@ -807,7 +805,6 @@ def display_property_weighting(
         maxnan=maxnan,
         threshold=threshold,
         method=method,
-        s_property=s_property,
         value=value,
     )
 
@@ -1925,9 +1922,9 @@ def display_max_decorr(
 @log_start_end(log=logger)
 def display_black_litterman(
     symbols: List[str],
-    p_views: List = None,
-    q_views: List = None,
-    benchmark: Dict = None,
+    p_views: Optional[List] = None,
+    q_views: Optional[List] = None,
+    benchmark: Optional[Dict] = None,
     interval: str = "3y",
     start_date: str = "",
     end_date: str = "",
@@ -1939,7 +1936,7 @@ def display_black_litterman(
     objective: str = "Sharpe",
     risk_free_rate: float = 0,
     risk_aversion: float = 1,
-    delta: float = None,
+    delta: Optional[float] = None,
     equilibrium: bool = True,
     optimize: bool = True,
     value: float = 1.0,
@@ -2082,7 +2079,7 @@ def display_ef(
     seed: int = 123,
     tangency: bool = False,
     plot_tickers: bool = True,
-    external_axes: Optional[List[plt.Axes]] = None,
+    external_axes: bool = False,
 ):
     """
     Display efficient frontier
@@ -2149,7 +2146,7 @@ def display_ef(
         Seed used to generate random portfolios. The default value is 123.
     tangency: bool, optional
         Adds the optimal line with the risk-free asset.
-    external_axes: Optional[List[plt.Axes]]
+    external_axes: bool
         Optional axes to plot data on
     plot_tickers: bool
         Whether to plot the tickers for the assets
@@ -2177,10 +2174,9 @@ def display_ef(
     try:
         risk_free_rate = risk_free_rate / time_factor[freq.upper()]
 
-        if external_axes is None:
-            _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-        else:
-            ax = external_axes[0]
+        _, ax = plt.subplots(
+            figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+        )
 
         ax = rp.plot_frontier(
             w_frontier=frontier,
@@ -2272,15 +2268,18 @@ def display_ef(
         ax.set_title(f"Efficient Frontier simulating {n_portfolios} portfolios")
         ax.legend(loc="best", scatterpoints=1)
         theme.style_primary_axis(ax)
-        l, b, w, h = ax.get_position().bounds
-        ax.set_position([l, b, w * 0.9, h])
+        L, b, w, h = ax.get_position().bounds
+        ax.set_position([L, b, w * 0.9, h])
         ax1 = ax.get_figure().axes
         ll, bb, ww, hh = ax1[-1].get_position().bounds
         ax1[-1].set_position([ll * 1.02, bb, ww, hh])
-        if external_axes is None:
-            theme.visualize_output(force_tight_layout=False)
+
+        return theme.visualize_output(
+            force_tight_layout=False, external_axes=external_axes
+        )
     except Exception as _:
         console.print("[red]Error plotting efficient frontier.[/red]")
+        return None
 
 
 @log_start_end(log=logger)
@@ -2295,7 +2294,7 @@ def display_risk_parity(
     threshold: float = 0,
     method: str = "time",
     risk_measure: str = "mv",
-    risk_cont: List[str] = None,
+    risk_cont: Optional[List[str]] = None,
     risk_free_rate: float = 0,
     alpha: float = 0.05,
     target_return: float = -1,
@@ -2448,7 +2447,7 @@ def display_rel_risk_parity(
     threshold: float = 0,
     method: str = "time",
     version: str = "A",
-    risk_cont: List[str] = None,
+    risk_cont: Optional[List[str]] = None,
     penal_factor: float = 1,
     target_return: float = -1,
     mean: str = "hist",
@@ -2596,10 +2595,10 @@ def display_hcp(
     risk_aversion: float = 1.0,
     alpha: float = 0.05,
     a_sim: int = 100,
-    beta: float = None,
-    b_sim: int = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[int] = None,
     linkage: str = "ward",
-    k: int = None,
+    k: Optional[int] = None,
     max_k: int = 10,
     bins_info: str = "KN",
     alpha_tail: float = 0.05,
@@ -2864,8 +2863,8 @@ def display_hrp(
     risk_aversion: float = 1.0,
     alpha: float = 0.05,
     a_sim: int = 100,
-    beta: float = None,
-    b_sim: int = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[int] = None,
     linkage: str = "single",
     k: int = 0,
     max_k: int = 10,
@@ -3108,8 +3107,8 @@ def display_herc(
     risk_aversion: float = 1.0,
     alpha: float = 0.05,
     a_sim: int = 100,
-    beta: float = None,
-    b_sim: int = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[int] = None,
     linkage: str = "ward",
     k: int = 0,
     max_k: int = 10,
@@ -3361,10 +3360,10 @@ def display_nco(
     risk_aversion: float = 1.0,
     alpha: float = 0.05,
     a_sim: int = 100,
-    beta: float = None,
-    b_sim: int = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[int] = None,
     linkage: str = "ward",
-    k: int = None,
+    k: Optional[int] = None,
     max_k: int = 10,
     bins_info: str = "KN",
     alpha_tail: float = 0.05,
@@ -3616,7 +3615,9 @@ def my_autopct(x):
 
 @log_start_end(log=logger)
 def pie_chart_weights(
-    weights: dict, title_opt: str, external_axes: Optional[List[plt.Axes]]
+    weights: dict,
+    title_opt: str,
+    external_axes: bool = False,
 ):
     """Show a pie chart of holdings
 
@@ -3626,11 +3627,11 @@ def pie_chart_weights(
         Weights to display, where keys are tickers, and values are either weights or values if -v specified
     title_opt: str
         Title to be used on the plot title
-    external_axes:Optiona[List[plt.Axes]]
+    external_axes: bool
         Optional external axes to plot data on
     """
     if not weights:
-        return
+        return None
 
     init_stocks = list(weights.keys())
     init_sizes = list(weights.values())
@@ -3644,10 +3645,9 @@ def pie_chart_weights(
     total_size = np.sum(sizes)
     colors = theme.get_colors()
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     if math.isclose(sum(sizes), 1, rel_tol=0.1):
         _, _, autotexts = ax.pie(
@@ -3712,15 +3712,14 @@ def pie_chart_weights(
     title += "Portfolio Composition"
     ax.set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output()
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
 def additional_plots(
     weights: Dict,
     data: pd.DataFrame,
-    category_dict: Dict = None,
+    category_dict: Optional[Dict] = None,
     category: str = "",
     portfolio_name: str = "",
     freq: str = "D",
@@ -3728,14 +3727,14 @@ def additional_plots(
     risk_free_rate: float = 0,
     alpha: float = 0.05,
     a_sim: float = 100,
-    beta: float = None,
-    b_sim: float = None,
+    beta: Optional[float] = None,
+    b_sim: Optional[float] = None,
     pie: bool = False,
     hist: bool = False,
     dd: bool = False,
     rc_chart: bool = False,
     heat: bool = False,
-    external_axes: Optional[List[plt.Axes]] = None,
+    external_axes: bool = False,
 ):
     """
     Plot additional charts
@@ -3814,7 +3813,7 @@ def additional_plots(
         Display a risk contribution chart for assets, by default False
     heat : float, optional
         Display a heatmap of correlation matrix with dendrogram, by default False
-    external_axes: Optional[List[plt.Axes]]
+    external_axes: bool
         Optional axes to plot data on
     """
 
@@ -3866,10 +3865,9 @@ def additional_plots(
         pie_chart_weights(weights, title_opt, external_axes)
 
     if hist:
-        if external_axes is None:
-            _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-        else:
-            ax = external_axes[0]
+        _, ax = plt.subplots(
+            figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+        )
 
         ax = rp.plot_hist(data, w=pd.Series(weights).to_frame(), alpha=alpha, ax=ax)
         ax.legend(fontsize="x-small", loc="best")
@@ -3890,14 +3888,14 @@ def additional_plots(
         title += ax.get_title(loc="left")
         ax.set_title(title)
 
-        if external_axes is None:
-            theme.visualize_output()
+        return theme.visualize_output(
+            force_tight_layout=False, external_axes=external_axes
+        )
 
     if dd:
-        if external_axes is None:
-            _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-        else:
-            ax = external_axes[0]
+        _, ax = plt.subplots(
+            figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+        )
 
         nav = data.cumsum()
         ax = rp.plot_drawdown(
@@ -3926,14 +3924,14 @@ def additional_plots(
         title += ax.get_title(loc="left")
         ax.set_title(title)
 
-        if external_axes is None:
-            theme.visualize_output()
+        return theme.visualize_output(
+            force_tight_layout=False, external_axes=external_axes
+        )
 
     if rc_chart:
-        if external_axes is None:
-            _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-        else:
-            ax = external_axes[0]
+        _, ax = plt.subplots(
+            figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+        )
 
         ax = rp.plot_risk_con(
             w=pd.Series(weights).to_frame(),
@@ -3960,27 +3958,23 @@ def additional_plots(
         title += ax.get_title(loc="left")
         ax.set_title(title)
 
-        if external_axes is None:
-            theme.visualize_output()
+        return theme.visualize_output(
+            force_tight_layout=False, external_axes=external_axes
+        )
 
     if heat:
-
         if len(weights) == 1:
             single_key = list(weights.keys())[0].upper()
             console.print(
                 f"[yellow]Heatmap needs at least two values for '{category}', only found '{single_key}'.[/yellow]"
             )
-            return
+            return None
 
-        if external_axes is None:
-            _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-        else:
-            ax = external_axes[0]
+        _, ax = plt.subplots(
+            figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+        )
 
-        if len(weights) <= 3:
-            number_of_clusters = len(weights)
-        else:
-            number_of_clusters = None
+        number_of_clusters = len(weights) if len(weights) <= 3 else None
 
         ax = rp.plot_clusters(
             returns=data,
@@ -4001,45 +3995,48 @@ def additional_plots(
 
         if category_dict is None:
             # Vertical dendrogram
-            l, b, w, h = ax[4].get_position().bounds
-            l1 = l * 0.5
+            L, b, w, h = ax[4].get_position().bounds
+            l1 = L * 0.5
             w1 = w * 0.2
             b1 = h * 0.05
-            ax[4].set_position([l - l1, b + b1, w * 0.8, h * 0.95])
+            ax[4].set_position([L - l1, b + b1, w * 0.8, h * 0.95])
             # Heatmap
-            l, b, w, h = ax[1].get_position().bounds
-            ax[1].set_position([l - l1 - w1, b + b1, w * 0.8, h * 0.95])
+            L, b, w, h = ax[1].get_position().bounds
+            ax[1].set_position([L - l1 - w1, b + b1, w * 0.8, h * 0.95])
             w2 = w * 0.2
             # colorbar
-            l, b, w, h = ax[2].get_position().bounds
-            ax[2].set_position([l - l1 - w1 - w2, b, w, h])
+            L, b, w, h = ax[2].get_position().bounds
+            ax[2].set_position([L - l1 - w1 - w2, b, w, h])
             # Horizontal dendrogram
-            l, b, w, h = ax[3].get_position().bounds
-            ax[3].set_position([l - l1 - w1, b, w * 0.8, h])
+            L, b, w, h = ax[3].get_position().bounds
+            ax[3].set_position([L - l1 - w1, b, w * 0.8, h])
         else:
             # Vertical dendrogram
-            l, b, w, h = ax[4].get_position().bounds
-            l1 = l * 0.5
+            L, b, w, h = ax[4].get_position().bounds
+            l1 = L * 0.5
             w1 = w * 0.4
             b1 = h * 0.2
-            ax[4].set_position([l - l1, b + b1, w * 0.6, h * 0.8])
+            ax[4].set_position([L - l1, b + b1, w * 0.6, h * 0.8])
             # Heatmap
-            l, b, w, h = ax[1].get_position().bounds
-            ax[1].set_position([l - l1 - w1, b + b1, w * 0.6, h * 0.8])
+            L, b, w, h = ax[1].get_position().bounds
+            ax[1].set_position([L - l1 - w1, b + b1, w * 0.6, h * 0.8])
             w2 = w * 0.05
             # colorbar
-            l, b, w, h = ax[2].get_position().bounds
-            ax[2].set_position([l - l1 - w1 - w2, b, w, h])
+            L, b, w, h = ax[2].get_position().bounds
+            ax[2].set_position([L - l1 - w1 - w2, b, w, h])
             # Horizontal dendrogram
-            l, b, w, h = ax[3].get_position().bounds
-            ax[3].set_position([l - l1 - w1, b, w * 0.6, h])
+            L, b, w, h = ax[3].get_position().bounds
+            ax[3].set_position([L - l1 - w1, b, w * 0.6, h])
 
         title = "Portfolio - " + title_opt + "\n"
         title += ax[3].get_title(loc="left")
         ax[3].set_title(title)
 
-        if external_axes is None:
-            theme.visualize_output(force_tight_layout=True)
+        return theme.visualize_output(
+            force_tight_layout=False, external_axes=external_axes
+        )
+
+    return None
 
 
 def display_show(weights: Dict, tables: List[str], categories_dict: Dict[Any, Any]):

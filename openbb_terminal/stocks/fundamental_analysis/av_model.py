@@ -6,15 +6,15 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-
 from alpha_vantage.fundamentaldata import FundamentalData
-from openbb_terminal import config_terminal as cfg
+
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.decorators import log_start_end
 from openbb_terminal.helper_funcs import lambda_long_number_format, request
 from openbb_terminal.rich_config import console
 from openbb_terminal.stocks.fundamental_analysis import yahoo_finance_model
-from openbb_terminal.stocks.stocks_helper import clean_fraction
 from openbb_terminal.stocks.fundamental_analysis.fa_helper import clean_df_index
+from openbb_terminal.stocks.stocks_helper import clean_fraction
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,10 @@ def get_overview(symbol: str) -> pd.DataFrame:
         Dataframe of fundamentals
     """
     # Request OVERVIEW data from Alpha Vantage API
-    s_req = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={symbol}&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+    s_req = (
+        f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={symbol}&apikey"
+        f"={get_current_user().credentials.API_KEY_ALPHAVANTAGE}"
+    )
     result = request(s_req, stream=True)
     result_json = result.json()
 
@@ -56,44 +59,20 @@ def get_overview(symbol: str) -> pd.DataFrame:
     # If the returned data was unsuccessful
     if "Error Message" in result_json:
         console.print(result_json["Error Message"])
+    # check if json is empty
+    elif not result_json:
+        console.print("No data found from Alpha Vantage\n")
+    # Parse json data to dataframe
+    elif "Note" in result_json:
+        console.print(result_json["Note"], "\n")
     else:
-        # check if json is empty
-        if not result_json:
-            console.print("No data found from Alpha Vantage\n")
-        # Parse json data to dataframe
-        elif "Note" in result_json:
-            console.print(result_json["Note"], "\n")
-        else:
-            df_fa = pd.json_normalize(result_json)
+        df_fa = pd.json_normalize(result_json)
 
-            # Keep json data sorting in dataframe
-            df_fa = df_fa[list(result_json.keys())].T
-            df_fa.iloc[5:] = df_fa.iloc[5:].applymap(
-                lambda x: lambda_long_number_format(x)
-            )
-            clean_df_index(df_fa)
-            df_fa = df_fa.rename(
-                index={
-                    "E b i t d a": "EBITDA",
-                    "P e ratio": "PE ratio",
-                    "P e g ratio": "PEG ratio",
-                    "E p s": "EPS",
-                    "Revenue per share t t m": "Revenue per share TTM",
-                    "Operating margin t t m": "Operating margin TTM",
-                    "Return on assets t t m": "Return on assets TTM",
-                    "Return on equity t t m": "Return on equity TTM",
-                    "Revenue t t m": "Revenue TTM",
-                    "Gross profit t t m": "Gross profit TTM",
-                    "Diluted e p s t t m": "Diluted EPS TTM",
-                    "Quarterly earnings growth y o y": "Quarterly earnings growth YOY",
-                    "Quarterly revenue growth y o y": "Quarterly revenue growth YOY",
-                    "Trailing p e": "Trailing PE",
-                    "Forward p e": "Forward PE",
-                    "Price to sales ratio t t m": "Price to sales ratio TTM",
-                    "E v to revenue": "EV to revenue",
-                    "E v to e b i t d a": "EV to EBITDA",
-                }
-            )
+        # Keep json data sorting in dataframe
+        df_fa = df_fa[list(result_json.keys())].T
+        df_fa.iloc[5:] = df_fa.iloc[5:].applymap(lambda x: lambda_long_number_format(x))
+        df_fa.columns = [" "]
+
     return df_fa
 
 
@@ -112,7 +91,10 @@ def get_key_metrics(symbol: str) -> pd.DataFrame:
         Dataframe of key metrics
     """
     # Request OVERVIEW data
-    s_req = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={symbol}&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+    s_req = (
+        f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={symbol}"
+        f"&apikey={get_current_user().credentials.API_KEY_ALPHAVANTAGE}"
+    )
     result = request(s_req, stream=True)
     result_json = result.json()
 
@@ -127,7 +109,9 @@ def get_key_metrics(symbol: str) -> pd.DataFrame:
 
         df_fa = pd.json_normalize(result_json)
         df_fa = df_fa[list(result_json.keys())].T
-        df_fa = df_fa.applymap(lambda x: lambda_long_number_format(x))
+
+        if not get_current_user().preferences.USE_INTERACTIVE_DF:
+            df_fa = df_fa.applymap(lambda x: lambda_long_number_format(x))
         clean_df_index(df_fa)
         df_fa = df_fa.rename(
             index={
@@ -188,7 +172,7 @@ def get_income_statements(
     """
     url = (
         f"https://www.alphavantage.co/query?function=INCOME_STATEMENT&symbol={symbol}"
-        f"&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+        f"&apikey={get_current_user().credentials.API_KEY_ALPHAVANTAGE}"
     )
     r = request(url)
     response_json = r.json()
@@ -198,54 +182,48 @@ def get_income_statements(
     # If the returned data was unsuccessful
     if "Error Message" in response_json:
         console.print(response_json["Error Message"])
+    # check if json is empty
+    elif not response_json:
+        console.print("No data found from Alpha Vantage, looking in Yahoo Finance\n")
+        if (
+            yahoo_finance_model.get_financials(symbol, statement="financials")
+            is not None
+        ):
+            return yahoo_finance_model.get_financials(symbol, statement="financials")
     else:
-        # check if json is empty
-        if not response_json:
-            console.print(
-                "No data found from Alpha Vantage, looking in Yahoo Finance\n"
-            )
-            if (
-                yahoo_finance_model.get_financials(symbol, statement="financials")
-                is not None
-            ):
-                return yahoo_finance_model.get_financials(
-                    symbol, statement="financials"
-                )
-        else:
-            statements = response_json
-            df_fa = pd.DataFrame()
+        statements = response_json
+        df_fa = pd.DataFrame()
 
-            if quarterly:
-                if "quarterlyReports" in statements:
-                    df_fa = pd.DataFrame(statements["quarterlyReports"])
-            else:
-                if "annualReports" in statements:
-                    df_fa = pd.DataFrame(statements["annualReports"])
+        if quarterly:
+            if "quarterlyReports" in statements:
+                df_fa = pd.DataFrame(statements["quarterlyReports"])
+        elif "annualReports" in statements:
+            df_fa = pd.DataFrame(statements["annualReports"])
 
-            if df_fa.empty:
-                console.print("No data found from Alpha Vantage\n")
-                return pd.DataFrame()
+        if df_fa.empty:
+            console.print("No data found from Alpha Vantage\n")
+            return pd.DataFrame()
 
-            df_fa = df_fa.set_index("fiscalDateEnding")
-            df_fa = df_fa[::-1].T
+        df_fa = df_fa.set_index("fiscalDateEnding")
+        df_fa = df_fa[::-1].T
 
-            df_fa = df_fa.replace("None", "0")
-            df_fa.iloc[1:] = df_fa.iloc[1:].astype("float")
+        df_fa = df_fa.replace("None", "0")
+        df_fa.iloc[1:] = df_fa.iloc[1:].astype("float")
 
-            df_fa_c = df_fa.iloc[:, -limit:].applymap(
-                lambda x: lambda_long_number_format(x)
-            )
+        df_fa_c = df_fa.iloc[:, -limit:].applymap(
+            lambda x: lambda_long_number_format(x)
+        )
 
-            if ratios:
-                df_fa_pc = df_fa.iloc[1:].pct_change(axis="columns").fillna(0)
-                j = 0
-                for i in list(range(1, 25)):
-                    df_fa.iloc[i] = df_fa_pc.iloc[j]
-                    j += 1
+        if ratios:
+            df_fa_pc = df_fa.iloc[1:].pct_change(axis="columns").fillna(0)
+            j = 0
+            for i in list(range(1, 25)):
+                df_fa.iloc[i] = df_fa_pc.iloc[j]
+                j += 1
 
-            df_fa = df_fa.iloc[:, 0:limit]
+        df_fa = df_fa.iloc[:, 0:limit]
 
-            return df_fa_c if not plot else df_fa
+        return df_fa_c if not plot else df_fa
     return pd.DataFrame()
 
 
@@ -277,7 +255,11 @@ def get_balance_sheet(
     pd.DataFrame
         DataFrame of the balance sheet
     """
-    url = f"https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol={symbol}&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+    current_user = get_current_user()
+    url = (
+        f"https://www.alphavantage.co/query?function=BALANCE_SHEET&symbol={symbol}&"
+        f"apikey={current_user.credentials.API_KEY_ALPHAVANTAGE}"
+    )
     r = request(url)
     response_json = r.json()
     if check_premium_key(response_json):
@@ -301,9 +283,8 @@ def get_balance_sheet(
         if quarterly:
             if "quarterlyReports" in statements:
                 df_fa = pd.DataFrame(statements["quarterlyReports"])
-        else:
-            if "annualReports" in statements:
-                df_fa = pd.DataFrame(statements["annualReports"])
+        elif "annualReports" in statements:
+            df_fa = pd.DataFrame(statements["annualReports"])
 
         if df_fa.empty:
             console.print("No data found from Alpha Vantage\n")
@@ -364,7 +345,10 @@ def get_cash_flow(
     pd.DataFrame
         Dataframe of cash flow statements
     """
-    url = f"https://www.alphavantage.co/query?function=CASH_FLOW&symbol={symbol}&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+    url = (
+        f"https://www.alphavantage.co/query?function=CASH_FLOW&symbol={symbol}"
+        f"&apikey={get_current_user().credentials.API_KEY_ALPHAVANTAGE}"
+    )
     r = request(url)
     response_json = r.json()
     if check_premium_key(response_json):
@@ -372,57 +356,52 @@ def get_cash_flow(
     # If the returned data was unsuccessful
     if "Error Message" in response_json:
         console.print(response_json["Error Message"])
+    elif not response_json:
+        console.print("No data found from Alpha Vantage, looking in Yahoo Finance\n")
+
+        if (
+            yahoo_finance_model.get_financials(symbol, statement="cash-flow")
+            is not None
+        ):
+            return yahoo_finance_model.get_financials(symbol, statement="cash-flow")
     else:
-        # check if json is empty
-        if not response_json:
-            console.print(
-                "No data found from Alpha Vantage, looking in Yahoo Finance\n"
-            )
+        statements = response_json
+        df_fa = pd.DataFrame()
 
-            if (
-                yahoo_finance_model.get_financials(symbol, statement="cash-flow")
-                is not None
-            ):
-                return yahoo_finance_model.get_financials(symbol, statement="cash-flow")
-        else:
-            statements = response_json
-            df_fa = pd.DataFrame()
+        if quarterly:
+            if "quarterlyReports" in statements:
+                df_fa = pd.DataFrame(statements["quarterlyReports"])
+        elif "annualReports" in statements:
+            df_fa = pd.DataFrame(statements["annualReports"])
 
-            if quarterly:
-                if "quarterlyReports" in statements:
-                    df_fa = pd.DataFrame(statements["quarterlyReports"])
-            else:
-                if "annualReports" in statements:
-                    df_fa = pd.DataFrame(statements["annualReports"])
+        if df_fa.empty:
+            console.print("No data found from Alpha Vantage\n")
+            return pd.DataFrame()
 
-            if df_fa.empty:
-                console.print("No data found from Alpha Vantage\n")
-                return pd.DataFrame()
+        df_fa = df_fa.set_index("fiscalDateEnding")
+        df_fa = df_fa[::-1].T
 
-            df_fa = df_fa.set_index("fiscalDateEnding")
-            df_fa = df_fa[::-1].T
+        df_fa = df_fa.replace("None", "0")
+        df_fa.iloc[1:] = df_fa.iloc[1:].astype("float")
 
-            df_fa = df_fa.replace("None", "0")
-            df_fa.iloc[1:] = df_fa.iloc[1:].astype("float")
+        df_fa_c = df_fa.iloc[:, -limit:].applymap(
+            lambda x: lambda_long_number_format(x)
+        )
 
-            df_fa_c = df_fa.iloc[:, -limit:].applymap(
+        if ratios:
+            df_fa_pc = df_fa.iloc[1:].pct_change(axis="columns").fillna(0)
+            j = 0
+            for i in list(range(1, 37)):
+                df_fa.iloc[i] = df_fa_pc.iloc[j]
+                j += 1
+
+            df_fa_c = df_fa.iloc[:, 0:limit].applymap(
                 lambda x: lambda_long_number_format(x)
             )
 
-            if ratios:
-                df_fa_pc = df_fa.iloc[1:].pct_change(axis="columns").fillna(0)
-                j = 0
-                for i in list(range(1, 37)):
-                    df_fa.iloc[i] = df_fa_pc.iloc[j]
-                    j += 1
+        df_fa = df_fa.iloc[:, 0:limit]
 
-                df_fa_c = df_fa.iloc[:, 0:limit].applymap(
-                    lambda x: lambda_long_number_format(x)
-                )
-
-            df_fa = df_fa.iloc[:, 0:limit]
-
-            return df_fa_c if not plot else df_fa
+        return df_fa_c if not plot else df_fa
     return pd.DataFrame()
 
 
@@ -445,7 +424,7 @@ def get_earnings(symbol: str, quarterly: bool = False) -> pd.DataFrame:
     # Request EARNINGS data from Alpha Vantage API
     s_req = (
         "https://www.alphavantage.co/query?function=EARNINGS&"
-        f"symbol={symbol}&apikey={cfg.API_KEY_ALPHAVANTAGE}"
+        f"symbol={symbol}&apikey={get_current_user().credentials.API_KEY_ALPHAVANTAGE}"
     )
     result = request(s_req, stream=True)
     result_json = result.json()
@@ -454,49 +433,46 @@ def get_earnings(symbol: str, quarterly: bool = False) -> pd.DataFrame:
     # If the returned data was unsuccessful
     if "Error Message" in result_json:
         console.print(result_json["Error Message"])
+    # check if json is empty
+    elif not result_json or len(result_json) < 2:
+        console.print("No data found from Alpha Vantage\n")
     else:
-        # check if json is empty
-        if not result_json or len(result_json) < 2:
-            console.print("No data found from Alpha Vantage\n")
-        else:
+        df_fa = pd.json_normalize(result_json)
 
-            df_fa = pd.json_normalize(result_json)
-
-            if quarterly:
-                df_fa = pd.DataFrame(df_fa["quarterlyEarnings"][0])
-                df_fa = df_fa[
-                    [
-                        "fiscalDateEnding",
-                        "reportedDate",
-                        "reportedEPS",
-                        "estimatedEPS",
-                        "surprise",
-                        "surprisePercentage",
-                    ]
+        if quarterly:
+            df_fa = pd.DataFrame(df_fa["quarterlyEarnings"][0])
+            df_fa = df_fa[
+                [
+                    "fiscalDateEnding",
+                    "reportedDate",
+                    "reportedEPS",
+                    "estimatedEPS",
+                    "surprise",
+                    "surprisePercentage",
                 ]
-                df_fa = df_fa.rename(
-                    columns={
-                        "fiscalDateEnding": "Fiscal Date Ending",
-                        "reportedEPS": "Reported EPS",
-                        "estimatedEPS": "Estimated EPS",
-                        "reportedDate": "Reported Date",
-                        "surprise": "Surprise",
-                        "surprisePercentage": "Surprise Percentage",
-                    }
-                )
-            else:
-                df_fa = pd.DataFrame(df_fa["annualEarnings"][0])
-                df_fa = df_fa.rename(
-                    columns={
-                        "fiscalDateEnding": "Fiscal Date Ending",
-                        "reportedEPS": "Reported EPS",
-                    }
-                )
+            ]
+            df_fa = df_fa.rename(
+                columns={
+                    "fiscalDateEnding": "Fiscal Date Ending",
+                    "reportedEPS": "Reported EPS",
+                    "estimatedEPS": "Estimated EPS",
+                    "reportedDate": "Reported Date",
+                    "surprise": "Surprise",
+                    "surprisePercentage": "Surprise Percentage",
+                }
+            )
+        else:
+            df_fa = pd.DataFrame(df_fa["annualEarnings"][0])
+            df_fa = df_fa.rename(
+                columns={
+                    "fiscalDateEnding": "Fiscal Date Ending",
+                    "reportedEPS": "Reported EPS",
+                }
+            )
 
     return df_fa
 
 
-@log_start_end(log=logger)
 def df_values(
     df: pd.DataFrame, item: str, index: int = 0, length: int = 2
 ) -> List[int]:
@@ -546,8 +522,7 @@ def replace_df(name: str, row: pd.Series) -> pd.Series:
         elif name in ["Zscore", "McKee"]:
             row[i] = color_zscore_mckee(item)
         else:
-            row[i] = str(round(float(item), 2))
-
+            row[i] = str(round(float(item), 2)) if item != "nan" else "N/A"
     return row
 
 
@@ -564,6 +539,8 @@ def color_mscore(value: str) -> str:
     new_value : str
         The string formatted with rich color
     """
+    if value == "nan":
+        return "N/A"
     value_float = float(value)
     if value_float <= -2.22:
         return f"[green]{value_float:.2f}[/green]"
@@ -584,6 +561,8 @@ def color_zscore_mckee(value: str) -> str:
     new_value : str
         The string formatted with rich color
     """
+    if value == "nan":
+        return "N/A"
     value_float = float(value)
     if value_float < 0.5:
         return f"[red]{value_float:.2f}[/red]"
@@ -608,7 +587,10 @@ def get_fraud_ratios(symbol: str, detail: bool = False) -> pd.DataFrame:
     """
 
     try:
-        fd = FundamentalData(key=cfg.API_KEY_ALPHAVANTAGE, output_format="pandas")
+        fd = FundamentalData(
+            key=get_current_user().credentials.API_KEY_ALPHAVANTAGE,
+            output_format="pandas",
+        )
         # pylint: disable=unbalanced-tuple-unpacking
         df_cf, _ = fd.get_cash_flow_annual(symbol=symbol)
         df_bs, _ = fd.get_balance_sheet_annual(symbol=symbol)
@@ -699,7 +681,7 @@ def get_fraud_ratios(symbol: str, detail: bool = False) -> pd.DataFrame:
                 "Zscore",
                 "Mckee",
             ]:
-                ratios[item] = "N/A"
+                ratios[item] = np.nan
         if fraud_years.empty:
             fraud_years.index = ratios.keys()
         fraud_years[df_cf.index[i]] = ratios.values()
@@ -727,7 +709,10 @@ def get_dupont(symbol: str) -> pd.DataFrame:
     """
 
     try:
-        fd = FundamentalData(key=cfg.API_KEY_ALPHAVANTAGE, output_format="pandas")
+        fd = FundamentalData(
+            key=get_current_user().credentials.API_KEY_ALPHAVANTAGE,
+            output_format="pandas",
+        )
         # pylint: disable=unbalanced-tuple-unpacking
         df_bs, _ = fd.get_balance_sheet_annual(symbol=symbol)
         df_is, _ = fd.get_income_statement_annual(symbol=symbol)
@@ -743,6 +728,12 @@ def get_dupont(symbol: str) -> pd.DataFrame:
     df_bs = df_bs.set_index("fiscalDateEnding")
     df_is = df_is.set_index("fiscalDateEnding")
     dupont_years = pd.DataFrame()
+
+    if len(df_bs) != len(df_is):
+        console.print(
+            "The fiscal dates in the balance sheet do not correspond to the fiscal dates in the income statement."
+        )
+        return pd.DataFrame()
 
     for i in range(len(df_bs)):
         ni = df_values(df_is, "netIncome", i, 1)

@@ -1,60 +1,81 @@
 """Helper functions."""
 __docformat__ = "numpy"
-# pylint: disable=too-many-lines
-import argparse
-import io
-import logging
-from pathlib import Path
-from typing import List, Union, Optional, Dict, Tuple
-from functools import lru_cache
-from datetime import datetime, timedelta
-from datetime import date as d
-import types
-from collections.abc import Iterable
-import os
-import re
-import random
-import sys
-from difflib import SequenceMatcher
-import webbrowser
-import urllib.parse
-import json
 
-import pytz
-import pandas as pd
-from rich.table import Table
+# pylint: disable=too-many-lines
+
+# IMPORTS STANDARD LIBRARY
+# IMPORTS STANDARD
+import argparse
+import inspect
+import io
+import json
+import logging
+import os
+import random
+import re
+import shutil
+import sys
+import urllib.parse
+import webbrowser
+from datetime import (
+    date as d,
+    datetime,
+    timedelta,
+)
+from difflib import SequenceMatcher
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+# IMPORTS THIRDPARTY
 import iso8601
-import dotenv
 import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pandas.io.formats.format
+import pandas_ta as ta
+import pytz
+import requests
+import yfinance as yf
 from holidays import US as us_holidays
+from langchain.chat_models import ChatOpenAI
+from llama_index import (
+    LLMPredictor,
+    PromptHelper,
+    ServiceContext,
+    SimpleDirectoryReader,
+    StorageContext,
+    VectorStoreIndex,
+    load_index_from_storage,
+)
 from pandas._config.config import get_option
 from pandas.plotting import register_matplotlib_converters
-import pandas.io.formats.format
-import requests
-from screeninfo import get_monitors
-import yfinance as yf
-import numpy as np
-
 from PIL import Image, ImageDraw
+from rich.table import Table
+from screeninfo import get_monitors
 
-from openbb_terminal.rich_config import console
-from openbb_terminal import feature_flags as obbff
-from openbb_terminal import config_terminal as cfg
-from openbb_terminal import config_plot as cfgPlot
+from openbb_terminal import OpenBBFigure, plots_backend
 from openbb_terminal.core.config.paths import (
     HOME_DIRECTORY,
-    USER_ENV_FILE,
-    USER_EXPORTS_DIRECTORY,
-    load_dotenv_with_priority,
+    MISCELLANEOUS_DIRECTORY,
 )
-from openbb_terminal.core.config import paths
+from openbb_terminal.core.plots.plotly_ta.ta_class import PlotlyTA
+from openbb_terminal.core.session.current_system import get_current_system
+
+# IMPORTS INTERNAL
+from openbb_terminal.core.session.current_user import get_current_user
+from openbb_terminal.decorators import check_api_key
+from openbb_terminal.rich_config import console
 
 logger = logging.getLogger(__name__)
 
 register_matplotlib_converters()
-if cfgPlot.BACKEND is not None:
-    matplotlib.use(cfgPlot.BACKEND)
+if (
+    get_current_user().preferences.PLOT_BACKEND is not None
+    and get_current_user().preferences.PLOT_BACKEND != "None"
+):
+    matplotlib.use(get_current_user().preferences.PLOT_BACKEND)
 
 NO_EXPORT = 0
 EXPORT_ONLY_RAW_DATA_ALLOWED = 1
@@ -65,11 +86,16 @@ MENU_GO_BACK = 0
 MENU_QUIT = 1
 MENU_RESET = 2
 
+GPT_INDEX_DIRECTORY = MISCELLANEOUS_DIRECTORY / "gpt_index/"
+GPT_INDEX_VER = 0.4
+
+
 # Command location path to be shown in the figures depending on watermark flag
 command_location = ""
 
 
-# pylint: disable=R0912
+# pylint: disable=R1702,R0912
+
 
 # pylint: disable=global-statement
 def set_command_location(cmd_loc: str):
@@ -80,23 +106,10 @@ def set_command_location(cmd_loc: str):
     cmd_loc: str
         Command location called by user
     """
-    global command_location
+    if cmd_loc.split("/")[-1] == "hold":
+        return
+    global command_location  # noqa
     command_location = cmd_loc
-
-
-# pylint: disable=global-statement
-def set_user_data_folder(env_file: str = ".env", path_folder: str = ""):
-    """Set user data folder location.
-
-    Parameters
-    ----------
-    env_file : str
-        Env file to be updated
-    path_folder: str
-        Path folder location
-    """
-    dotenv.set_key(env_file, "OPENBB_USER_DATA_DIRECTORY", path_folder)
-    paths.USER_DATA_DIRECTORY = Path(path_folder)
 
 
 def check_path(path: str) -> str:
@@ -148,14 +161,13 @@ def parse_and_split_input(an_input: str, custom_filters: List) -> List[str]:
         Command queue as list
     """
     # Make sure that the user can go back to the root when doing "/"
-    if an_input:
-        if an_input == "/":
-            an_input = "home"
+    if an_input and an_input == "/":
+        an_input = "home"
 
     # everything from ` -f ` to the next known extension
     file_flag = r"(\ -f |\ --file )"
     up_to = r".*?"
-    known_extensions = r"(\.xlsx|.csv|.xls|.tsv|.json|.yaml|.ini|.openbb|.ipynb)"
+    known_extensions = r"(\.(xlsx|csv|xls|tsv|json|yaml|ini|openbb|ipynb))"
     unix_path_arg_exp = f"({file_flag}{up_to}{known_extensions})"
 
     # Add custom expressions to handle edge cases of individual controllers
@@ -251,17 +263,22 @@ def return_colored_value(value: str):
 
 
 # pylint: disable=too-many-arguments
-def print_rich_table(
+def print_rich_table(  # noqa: PLR0912
     df: pd.DataFrame,
     show_index: bool = False,
     title: str = "",
     index_name: str = "",
-    headers: Union[List[str], pd.Index] = None,
+    headers: Optional[Union[List[str], pd.Index]] = None,
     floatfmt: Union[str, List[str]] = ".2f",
     show_header: bool = True,
     automatic_coloring: bool = False,
-    columns_to_auto_color: List[str] = None,
-    rows_to_auto_color: List[str] = None,
+    columns_to_auto_color: Optional[List[str]] = None,
+    rows_to_auto_color: Optional[List[str]] = None,
+    export: bool = False,
+    print_to_console: bool = False,
+    limit: Optional[int] = 1000,
+    source: Optional[str] = None,
+    columns_keep_types: Optional[List[str]] = None,
 ):
     """Prepare a table from df in rich.
 
@@ -287,50 +304,118 @@ def print_rich_table(
         Columns to automatically color
     rows_to_auto_color: List[str]
         Rows to automatically color
+    export: bool
+        Whether we are exporting the table to a file. If so, we don't want to print it.
+    limit: Optional[int]
+        Limit the number of rows to show.
+    print_to_console: bool
+        Whether to print the table to the console. If False and interactive mode is
+        enabled, the table will be displayed in a new window. Otherwise, it will print to the
+        console.
+    source: Optional[str]
+        Source of the table. If provided, it will be displayed in the header of the table.
+    columns_keep_types: Optional[List[str]]
+        Columns to keep their types, i.e. not convert to numeric
     """
-    if obbff.USE_TABULATE_DF:
+    if export:
+        return
+
+    current_user = get_current_user()
+    enable_interactive = (
+        current_user.preferences.USE_INTERACTIVE_DF and plots_backend().isatty
+    )
+
+    # Make a copy of the dataframe to avoid SettingWithCopyWarning
+    df = df.copy()
+
+    show_index = not isinstance(df.index, pd.RangeIndex) and show_index
+    #  convert non-str that are not timestamp or int into str
+    # eg) praw.models.reddit.subreddit.Subreddit
+    for col in df.columns:
+        if columns_keep_types is not None and col in columns_keep_types:
+            continue
+        try:
+            if not any(
+                isinstance(df[col].iloc[x], pd.Timestamp)
+                for x in range(min(10, len(df)))
+            ):
+                df[col] = pd.to_numeric(df[col], errors="ignore")
+        except (ValueError, TypeError):
+            df[col] = df[col].astype(str)
+
+    def _get_headers(_headers: Union[List[str], pd.Index]) -> List[str]:
+        """Check if headers are valid and return them."""
+        output = _headers
+        if isinstance(_headers, pd.Index):
+            output = list(_headers)
+        if len(output) != len(df.columns):
+            log_and_raise(
+                ValueError("Length of headers does not match length of DataFrame")
+            )
+        return output
+
+    if enable_interactive and not print_to_console:
+        df_outgoing = df.copy()
+        # If headers are provided, use them
+        if headers is not None:
+            # We check if headers are valid
+            df_outgoing.columns = _get_headers(headers)
+
+        if show_index and index_name not in df_outgoing.columns:
+            # If index name is provided, we use it
+            df_outgoing.index.name = index_name or "Index"
+            df_outgoing = df_outgoing.reset_index()
+
+        for col in df_outgoing.columns:
+            if col == "":
+                df_outgoing = df_outgoing.rename(columns={col: "  "})
+
+        plots_backend().send_table(
+            df_table=df_outgoing,
+            title=title,
+            source=source,  # type: ignore
+            theme=current_user.preferences.TABLE_STYLE,
+        )
+        return
+
+    df = df.copy() if not limit else df.copy().iloc[:limit]
+    if automatic_coloring:
+        if columns_to_auto_color:
+            for col in columns_to_auto_color:
+                # checks whether column exists
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: return_colored_value(str(x)))
+        if rows_to_auto_color:
+            for row in rows_to_auto_color:
+                # checks whether row exists
+                if row in df.index:
+                    df.loc[row] = df.loc[row].apply(
+                        lambda x: return_colored_value(str(x))
+                    )
+
+        if columns_to_auto_color is None and rows_to_auto_color is None:
+            df = df.applymap(lambda x: return_colored_value(str(x)))
+
+    if current_user.preferences.USE_TABULATE_DF:
         table = Table(title=title, show_lines=True, show_header=show_header)
-
-        if obbff.USE_COLOR and automatic_coloring:
-            if columns_to_auto_color:
-                for col in columns_to_auto_color:
-                    # checks whether column exists
-                    if col in df.columns:
-                        df[col] = df[col].apply(lambda x: return_colored_value(str(x)))
-            if rows_to_auto_color:
-                for row in rows_to_auto_color:
-                    # checks whether row exists
-                    if row in df.index:
-                        df.loc[row] = df.loc[row].apply(
-                            lambda x: return_colored_value(str(x))
-                        )
-
-            if columns_to_auto_color is None and rows_to_auto_color is None:
-                df = df.applymap(lambda x: return_colored_value(str(x)))
 
         if show_index:
             table.add_column(index_name)
 
         if headers is not None:
-            if isinstance(headers, pd.Index):
-                headers = list(headers)
-            if len(headers) != len(df.columns):
-                log_and_raise(
-                    ValueError("Length of headers does not match length of DataFrame")
-                )
+            headers = _get_headers(headers)
             for header in headers:
                 table.add_column(str(header))
         else:
             for column in df.columns:
                 table.add_column(str(column))
 
-        if isinstance(floatfmt, list):
-            if len(floatfmt) != len(df.columns):
-                log_and_raise(
-                    ValueError(
-                        "Length of floatfmt list does not match length of DataFrame columns."
-                    )
+        if isinstance(floatfmt, list) and len(floatfmt) != len(df.columns):
+            log_and_raise(
+                ValueError(
+                    "Length of floatfmt list does not match length of DataFrame columns."
                 )
+            )
         if isinstance(floatfmt, str):
             floatfmt = [floatfmt for _ in range(len(df.columns))]
 
@@ -352,24 +437,6 @@ def print_rich_table(
             table.add_row(*row_idx)
         console.print(table)
     else:
-
-        if obbff.USE_COLOR and automatic_coloring:
-            if columns_to_auto_color:
-                for col in columns_to_auto_color:
-                    # checks whether column exists
-                    if col in df.columns:
-                        df[col] = df[col].apply(lambda x: return_colored_value(str(x)))
-            if rows_to_auto_color:
-                for row in rows_to_auto_color:
-                    # checks whether row exists
-                    if row in df.index:
-                        df.loc[row] = df.loc[row].apply(
-                            lambda x: return_colored_value(str(x))
-                        )
-
-            if columns_to_auto_color is None and rows_to_auto_color is None:
-                df = df.applymap(lambda x: return_colored_value(str(x)))
-
         console.print(df.to_string(col_space=0))
 
 
@@ -388,6 +455,7 @@ def check_int_range(mini: int, maxi: int):
     int_range_checker:
         Function that compares the three integers
     """
+
     # Define the function with default arguments
     def int_range_checker(num: int) -> int:
         """Check if int is between a high and low value.
@@ -472,6 +540,20 @@ def check_positive_list(value) -> List[int]:
     return list_of_pos
 
 
+def check_positive_float_list(value) -> List[float]:
+    """Argparse type to return list of positive floats."""
+    list_of_nums = value.split(",")
+    list_of_pos = []
+    for a_value in list_of_nums:
+        new_value = float(a_value)
+        if new_value <= 0:
+            log_and_raise(
+                argparse.ArgumentTypeError(f"{value} is an invalid positive int value")
+            )
+        list_of_pos.append(new_value)
+    return list_of_pos
+
+
 def check_positive(value) -> int:
     """Argparse type to check positive int."""
     new_value = int(value)
@@ -482,8 +564,102 @@ def check_positive(value) -> int:
     return new_value
 
 
+def check_indicators(string: str) -> List[str]:
+    """Check if indicators are valid."""
+    ta_cls = PlotlyTA()
+    choices = sorted(
+        [c.name.replace("plot_", "") for c in ta_cls if c.name != "plot_ma"]
+        + ta_cls.ma_mode
+    )
+    choices_print = (
+        f"{'`, `'.join(choices[:10])}`\n    `{'`, `'.join(choices[10:20])}"
+        f"`\n    `{'`, `'.join(choices[20:])}"
+    )
+
+    strings = string.split(",")
+    for s in strings:
+        if s not in choices:
+            raise argparse.ArgumentTypeError(
+                f"\nInvalid choice: {s}, choose from \n    `{choices_print}`",
+            )
+    return strings
+
+
+def check_indicator_parameters(args: str, _help: bool = False) -> str:
+    """Check if indicators parameters are valid."""
+    ta_cls = PlotlyTA()
+    indicators_dict: dict = {}
+
+    regex = re.compile(r"([a-zA-Z]+)\[([0-9.,]*)\]")
+    no_params_regex = re.compile(r"([a-zA-Z]+)")
+
+    matches = regex.findall(args)
+    no_params_matches = no_params_regex.findall(args)
+
+    indicators = [m[0] for m in matches]
+    for match in no_params_matches:
+        if match not in indicators:
+            matches.append((match, ""))
+
+    if _help:
+        console.print(
+            """[yellow]To pass custom parameters to indicators:[/]
+
+    [green]Example:
+        -i macd[12,26,9],rsi[14],sma[20,50]
+        -i macd,rsi,sma (uses default parameters)
+
+    [yellow]Would pass the following to the indicators:[/]
+        [green]macd=dict(fast=12, slow=26, signal=9)
+        rsi=dict(length=14)
+        sma=dict(length=[20,50])
+
+        They must be in the same order as the function parameters.[/]\n"""
+        )
+
+    pop_keys = ["close", "high", "low", "open", "open_", "volume", "talib", "return"]
+    if matches:
+        check_indicators(",".join([m[0] for m in matches]))
+        for match in matches:
+            indicator, args = match
+
+            indicators_dict.setdefault(indicator, {})
+            if indicator in ["fib", "srlines", "demark", "clenow"]:
+                if _help:
+                    console.print(
+                        f"[yellow]{indicator}:[/]\n{'':^4}[green]Parameters: None[/]"
+                    )
+                continue
+
+            fullspec = inspect.getfullargspec(getattr(ta, indicator))
+            kwargs = list(set(fullspec.args) - set(pop_keys))
+            kwargs.sort(key=fullspec.args.index)
+
+            if _help:
+                console.print(
+                    f"[yellow]{indicator}:[/]\n{'':^4}[green]Parameters: {', '.join(kwargs)}[/]"
+                )
+
+            if indicator in ta_cls.ma_mode:
+                indicators_dict[indicator]["length"] = check_positive_list(args)
+                continue
+
+            for i, arg in enumerate(args.split(",")):
+                if arg and len(kwargs) > i:
+                    indicators_dict[indicator][kwargs[i]] = (
+                        float(arg) if "." in arg else int(arg)
+                    )
+        return json.dumps(indicators_dict)
+
+    if not matches:
+        raise argparse.ArgumentTypeError(
+            f"Invalid indicator arguments: {args}. \n Example: -i macd[12,26,9],rsi[14]"
+        )
+    return args
+
+
 def check_positive_float(value) -> float:
-    """Argparse type to check positive int."""
+    """Argparse type to check positive float."""
     new_value = float(value)
     if new_value <= 0:
         log_and_raise(
@@ -591,6 +767,15 @@ def valid_date(s: str) -> datetime:
         raise argparse.ArgumentTypeError(f"Not a valid date: {s}") from value_error
 
 
+def is_valid_date(s: str) -> bool:
+    """Check if date is in valid format."""
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
 def valid_repo(repo: str) -> str:
     """Argparse type to check github repo is in valid format."""
     result = re.search(r"^[a-zA-Z0-9-_.]+\/[a-zA-Z0-9-_.]+$", repo)  # noqa: W605
@@ -614,83 +799,9 @@ def valid_hour(hr: str) -> int:
     return new_hr
 
 
-def plot_view_stock(df: pd.DataFrame, symbol: str, interval: str):
-    """Plot the loaded stock dataframe.
-
-    Parameters
-    ----------
-    df: Dataframe
-        Dataframe of prices and volumes
-    symbol: str
-        Symbol of ticker
-    interval: str
-        Stock data resolution for plotting purposes
-    """
-    df.sort_index(ascending=True, inplace=True)
-    bar_colors = ["r" if x[1].Open < x[1].Close else "g" for x in df.iterrows()]
-
-    try:
-        fig, ax = plt.subplots(
-            2,
-            1,
-            gridspec_kw={"height_ratios": [3, 1]},
-            figsize=plot_autoscale(),
-            dpi=cfgPlot.PLOT_DPI,
-        )
-    except Exception as e:
-        console.print(e)
-        console.print(
-            "Encountered an error trying to open a chart window. Check your X server configuration."
-        )
-        logging.exception("%s", type(e).__name__)
-        return
-
-    # In order to make nice Volume plot, make the bar width = interval
-    if interval == "1440min":
-        bar_width = timedelta(days=1)
-        title_string = "Daily"
-    else:
-        bar_width = timedelta(minutes=int(interval.split("m")[0]))
-        title_string = f"{int(interval.split('m')[0])} min"
-
-    ax[0].yaxis.tick_right()
-    if "Adj Close" in df.columns:
-        ax[0].plot(df.index, df["Adj Close"], c=cfgPlot.VIEW_COLOR)
-    else:
-        ax[0].plot(df.index, df["Close"], c=cfgPlot.VIEW_COLOR)
-    ax[0].set_xlim(df.index[0], df.index[-1])
-    ax[0].set_xticks([])
-    ax[0].yaxis.set_label_position("right")
-    ax[0].set_ylabel("Share Price ($)")
-    ax[0].grid(axis="y", color="gainsboro", linestyle="-", linewidth=0.5)
-
-    ax[0].spines["top"].set_visible(False)
-    ax[0].spines["left"].set_visible(False)
-    ax[1].bar(
-        df.index, df.Volume / 1_000_000, color=bar_colors, alpha=0.8, width=bar_width
-    )
-    ax[1].set_xlim(df.index[0], df.index[-1])
-    ax[1].yaxis.tick_right()
-    ax[1].yaxis.set_label_position("right")
-    ax[1].set_ylabel("Volume [1M]")
-    ax[1].grid(axis="y", color="gainsboro", linestyle="-", linewidth=0.5)
-    ax[1].spines["top"].set_visible(False)
-    ax[1].spines["left"].set_visible(False)
-    ax[1].set_xlabel("Time")
-    fig.suptitle(
-        symbol + " " + title_string,
-        size=20,
-        x=0.15,
-        y=0.95,
-        fontfamily="serif",
-        fontstyle="italic",
-    )
-    if obbff.USE_ION:
-        plt.ion()
-    fig.tight_layout(pad=2)
-    plt.setp(ax[1].get_xticklabels(), rotation=20, horizontalalignment="right")
-
-    plt.show()
+def lower_str(string: str) -> str:
+    """Convert string to lowercase."""
+    return string.lower()
 
 
 def us_market_holidays(years) -> list:
@@ -754,8 +865,14 @@ def us_market_holidays(years) -> list:
     return valid_holidays
 
 
-def lambda_long_number_format(num, round_decimal=3) -> str:
+def lambda_long_number_format(num, round_decimal=3) -> Union[str, int, float]:
     """Format a long number."""
+    if get_current_user().preferences.USE_INTERACTIVE_DF:
+        return num
+
+    if num == float("inf"):
+        return "inf"
+
     if isinstance(num, float):
         magnitude = 0
         while abs(num) >= 1000:
@@ -769,7 +886,12 @@ def lambda_long_number_format(num, round_decimal=3) -> str:
         return f"{num_str} {' KMBTP'[magnitude]}".strip()
     if isinstance(num, int):
         num = str(num)
-    if isinstance(num, str) and num.lstrip("-").isdigit():
+    if (
+        isinstance(num, str)
+        and num.lstrip("-").isdigit()
+        and not num.lstrip("-").startswith("0")
+        and not is_valid_date(num)
+    ):
         num = int(num)
         num /= 1.0
         magnitude = 0
@@ -782,6 +904,58 @@ def lambda_long_number_format(num, round_decimal=3) -> str:
 
         return f"{num_str} {' KMBTP'[magnitude]}".strip()
     return num
+
+
+def revert_lambda_long_number_format(num_str: str) -> Union[float, str]:
+    """
+    Revert the formatting of a long number if the input is a formatted number, otherwise return the input as is.
+
+    Parameters
+    ----------
+    num_str : str
+        The number to remove the formatting.
+
+    Returns
+    -------
+    Union[float, str]
+        The number as float (with no formatting) or the input as is.
+
+    """
+    magnitude_dict = {
+        "K": 1000,
+        "M": 1000000,
+        "B": 1000000000,
+        "T": 1000000000000,
+        "P": 1000000000000000,
+    }
+
+    # Ensure the input is a string and not empty
+    if not num_str or not isinstance(num_str, str):
+        return num_str
+
+    num_as_list = num_str.strip().split()
+
+    # If the input string is a number parse it as float
+    if (
+        len(num_as_list) == 1
+        and num_as_list[0].replace(".", "").replace("-", "").isdigit()
+        and not is_valid_date(num_str)
+    ):
+        return float(num_str)
+
+    # If the input string is a formatted number with magnitude
+    if (
+        len(num_as_list) == 2
+        and num_as_list[1] in magnitude_dict
+        and num_as_list[0].replace(".", "").replace("-", "").isdigit()
+    ):
+        num, unit = num_as_list
+        magnitude = magnitude_dict.get(unit)
+        if magnitude:
+            return float(num) * magnitude
+
+    # Return the input string as is if it's not a formatted number
+    return num_str
 
 
 def lambda_long_number_format_y_axis(df, y_column, ax):
@@ -894,10 +1068,7 @@ def is_intraday(df: pd.DataFrame) -> bool:
         True if data is intraday
     """
     granularity = df.index[1] - df.index[0]
-    if granularity >= timedelta(days=1):
-        intraday = False
-    else:
-        intraday = True
+    intraday = not granularity >= timedelta(days=1)
     return intraday
 
 
@@ -917,10 +1088,7 @@ def reindex_dates(df: pd.DataFrame) -> pd.DataFrame:
     pd.DataFrame
         Reindexed dataframe
     """
-    if is_intraday(df):
-        date_format = "%b %d %H:%M"
-    else:
-        date_format = "%Y-%m-%d"
+    date_format = "%b %d %H:%M" if is_intraday(df) else "%Y-%m-%d"
     reindexed_df = df.reset_index()
     reindexed_df["date"] = reindexed_df["date"].dt.strftime(date_format)
     return reindexed_df
@@ -935,7 +1103,7 @@ def get_data(tweet):
             "%Y-%m-%d %H:%M:%S"
         )
 
-    s_text = tweet["full_text"] if "full_text" in tweet.keys() else tweet["text"]
+    s_text = tweet["full_text"] if "full_text" in tweet else tweet["text"]
     return {"created_at": s_datetime, "text": s_text}
 
 
@@ -966,7 +1134,7 @@ def get_user_agent() -> str:
         "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:84.0) Gecko/20100101 Firefox/84.0",
     ]
 
-    return random.choice(user_agent_strings)  # nosec
+    return random.choice(user_agent_strings)  # nosec # noqa: S311
 
 
 def text_adjustment_init(self):
@@ -1045,6 +1213,11 @@ def patch_pandas_text_adjustment():
 
 def lambda_financials_colored_values(val: str) -> str:
     """Add a color to a value."""
+
+    # We don't want to do the color stuff in interactive mode
+    if get_current_user().preferences.USE_INTERACTIVE_DF:
+        return val
+
     if val == "N/A" or str(val) == "nan":
         val = "[yellow]N/A[/yellow]"
     elif sum(c.isalpha() for c in val) < 2:
@@ -1065,47 +1238,50 @@ def check_ohlc(type_ohlc: str) -> str:
 def lett_to_num(word: str) -> str:
     """Match ohlca to integers."""
     replacements = [("o", "1"), ("h", "2"), ("l", "3"), ("c", "4"), ("a", "5")]
-    for (a, b) in replacements:
+    for a, b in replacements:
         word = word.replace(a, b)
     return word
 
 
+AVAILABLE_FLAIRS = {
+    ":openbb": "(🦋)",
+    ":bug": "(🐛)",
+    ":rocket": "(🚀)",
+    ":diamond": "(💎)",
+    ":stars": "(✨)",
+    ":baseball": "(⚾)",
+    ":boat": "(⛵)",
+    ":phone": "(☎)",
+    ":mercury": "(☿)",
+    ":hidden": "",
+    ":sun": "(☼)",
+    ":moon": "(☾)",
+    ":nuke": "(☢)",
+    ":hazard": "(☣)",
+    ":tunder": "(☈)",
+    ":king": "(♔)",
+    ":queen": "(♕)",
+    ":knight": "(♘)",
+    ":recycle": "(♻)",
+    ":scales": "(⚖)",
+    ":ball": "(⚽)",
+    ":golf": "(⛳)",
+    ":piece": "(☮)",
+    ":yy": "(☯)",
+}
+
+
 def get_flair() -> str:
     """Get a flair icon."""
-    flairs = {
-        ":openbb": "(🦋)",
-        ":rocket": "(🚀)",
-        ":diamond": "(💎)",
-        ":stars": "(✨)",
-        ":baseball": "(⚾)",
-        ":boat": "(⛵)",
-        ":phone": "(☎)",
-        ":mercury": "(☿)",
-        ":hidden": "",
-        ":sun": "(☼)",
-        ":moon": "(☾)",
-        ":nuke": "(☢)",
-        ":hazard": "(☣)",
-        ":tunder": "(☈)",
-        ":king": "(♔)",
-        ":queen": "(♕)",
-        ":knight": "(♘)",
-        ":recycle": "(♻)",
-        ":scales": "(⚖)",
-        ":ball": "(⚽)",
-        ":golf": "(⛳)",
-        ":piece": "(☮)",
-        ":yy": "(☯)",
-    }
 
-    flair = (
-        flairs[str(obbff.USE_FLAIR)]
-        if str(obbff.USE_FLAIR) in flairs
-        else str(obbff.USE_FLAIR)
-    )
+    current_user = get_current_user()  # pylint: disable=redefined-outer-name
+    current_flair = str(current_user.preferences.FLAIR)
+    flair = AVAILABLE_FLAIRS.get(current_flair, current_flair)
 
-    set_default_timezone()
-    if obbff.USE_DATETIME and get_user_timezone_or_invalid() != "INVALID":
+    if (
+        current_user.preferences.USE_DATETIME
+        and get_user_timezone_or_invalid() != "INVALID"
+    ):
         dtime = datetime.now(pytz.timezone(get_user_timezone())).strftime(
             "%Y %b %d, %H:%M"
         )
@@ -1117,14 +1293,6 @@ def get_flair() -> str:
         return f"{dtime} {flair}"
 
     return flair
-
-
-def set_default_timezone() -> None:
-    """Set a default (America/New_York) timezone if one doesn't exist."""
-    load_dotenv_with_priority()
-    user_tz = os.getenv("OPENBB_TIMEZONE")
-    if not user_tz:
-        dotenv.set_key(USER_ENV_FILE, "OPENBB_TIMEZONE", "America/New_York")
 
 
 def is_timezone_valid(user_tz: str) -> bool:
@@ -1151,11 +1319,7 @@ def get_user_timezone() -> str:
     str
         user timezone based on .env file
     """
-    load_dotenv_with_priority()
-    user_tz = os.getenv("OPENBB_TIMEZONE")
-    if user_tz:
-        return user_tz
-    return ""
+    return get_current_user().preferences.TIMEZONE
 
 
 def get_user_timezone_or_invalid() -> str:
@@ -1172,21 +1336,6 @@ def get_user_timezone_or_invalid() -> str:
     return "INVALID"
 
 
-def replace_user_timezone(user_tz: str) -> None:
-    """Replace user timezone.
-
-    Parameters
-    ----------
-    user_tz: str
-        User timezone to set
-    """
-    if is_timezone_valid(user_tz):
-        dotenv.set_key(USER_ENV_FILE, "OPENBB_TIMEZONE", user_tz)
-        console.print("Timezone successfully updated", "\n")
-    else:
-        console.print("Timezone selected is not valid", "\n")
-
-
 def str_to_bool(value) -> bool:
     """Match a string to a boolean value."""
     if isinstance(value, bool):
@@ -1200,32 +1349,50 @@ def str_to_bool(value) -> bool:
 
 def get_screeninfo():
     """Get screeninfo."""
-    screens = get_monitors()  # Get all available monitors
-    if len(screens) - 1 < cfgPlot.MONITOR:  # Check to see if chosen monitor is detected
-        monitor = 0
-        console.print(
-            f"Could not locate monitor {cfgPlot.MONITOR}, using primary monitor."
-        )
-    else:
-        monitor = cfgPlot.MONITOR
-    main_screen = screens[monitor]  # Choose what monitor to get
+    try:
+        screens = get_monitors()  # Get all available monitors
+    except Exception:
+        return None
 
-    return (main_screen.width, main_screen.height)
+    if screens:
+        current_user = get_current_user()
+        if (
+            len(screens) - 1 < current_user.preferences.MONITOR
+        ):  # Check to see if chosen monitor is detected
+            monitor = 0
+            console.print(
+                f"Could not locate monitor {current_user.preferences.MONITOR}, using primary monitor."
+            )
+        else:
+            monitor = current_user.preferences.MONITOR
+        main_screen = screens[monitor]  # Choose what monitor to get
+
+        return (main_screen.width, main_screen.height)
+
+    return None
 
 
 def plot_autoscale():
     """Autoscale plot."""
-    if obbff.USE_PLOT_AUTOSCALING:
-        x, y = get_screeninfo()  # Get screen size
-        x = ((x) * cfgPlot.PLOT_WIDTH_PERCENTAGE * 10**-2) / (
-            cfgPlot.PLOT_DPI
+    current_user = get_current_user()
+    screen_info = get_screeninfo()
+    if current_user.preferences.USE_PLOT_AUTOSCALING and screen_info:
+        x, y = screen_info  # Get screen size
+        # account for ultrawide monitors
+        if x / y > 1.5:
+            x = x * 0.4
+
+        x = ((x) * current_user.preferences.PLOT_WIDTH_PERCENTAGE * 10**-2) / (
+            current_user.preferences.PLOT_DPI
         )  # Calculate width
-        if cfgPlot.PLOT_HEIGHT_PERCENTAGE == 100:  # If full height
+        if current_user.preferences.PLOT_HEIGHT_PERCENTAGE == 100:  # If full height
             y = y - 60  # Remove the height of window toolbar
-        y = ((y) * cfgPlot.PLOT_HEIGHT_PERCENTAGE * 10**-2) / (cfgPlot.PLOT_DPI)
+        y = ((y) * current_user.preferences.PLOT_HEIGHT_PERCENTAGE * 10**-2) / (
+            current_user.preferences.PLOT_DPI
+        )
     else:  # If not autoscale, use size defined in config_plot.py
-        x = cfgPlot.PLOT_WIDTH / (cfgPlot.PLOT_DPI)
-        y = cfgPlot.PLOT_HEIGHT / (cfgPlot.PLOT_DPI)
+        x = current_user.preferences.PLOT_WIDTH / (current_user.preferences.PLOT_DPI)
+        y = current_user.preferences.PLOT_HEIGHT / (current_user.preferences.PLOT_DPI)
     return x, y
 
 
@@ -1244,7 +1411,7 @@ def get_last_time_market_was_open(dt):
     return dt
 
 
-def check_file_type_saved(valid_types: List[str] = None):
+def check_file_type_saved(valid_types: Optional[List[str]] = None):
     """Provide valid types for the user to be able to select.
 
     Parameters
@@ -1316,29 +1483,82 @@ def compose_export_path(func_name: str, dir_path: str) -> Path:
 
     default_filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{path_cmd}_{func_name}"
 
-    full_path = USER_EXPORTS_DIRECTORY / default_filename
+    full_path = get_current_user().preferences.USER_EXPORTS_DIRECTORY / default_filename
 
     return full_path
 
 
-def ask_file_overwrite(file_path: str) -> Tuple[bool, bool]:
+def ask_file_overwrite(file_path: Path) -> Tuple[bool, bool]:
     """Helper to provide a prompt for overwriting existing files.
 
     Returns two values, the first is a boolean indicating if the file exists and the
     second is a boolean indicating if the user wants to overwrite the file.
     """
     # Jeroen asked for a flag to overwrite no matter what
-    if obbff.FILE_OVERWITE:
+    current_user = get_current_user()
+    if current_user.preferences.FILE_OVERWRITE:
         return False, True
-    if os.path.exists(file_path):
+    if get_current_system().TEST_MODE:
+        return False, True
+    if file_path.exists():
         overwrite = input("\nFile already exists. Overwrite? [y/n]: ").lower()
         if overwrite == "y":
+            file_path.unlink(missing_ok=True)
             # File exists and user wants to overwrite
             return True, True
         # File exists and user does not want to overwrite
         return True, False
     # File does not exist
     return False, True
+
+
+def save_to_excel(df, saved_path, sheet_name, start_row=0, index=True, header=True):
+    """Saves a Pandas DataFrame to an Excel file.
+
+    Args:
+        df: A Pandas DataFrame.
+        saved_path: The path to the Excel file to save to.
+        sheet_name: The name of the sheet to save the DataFrame to.
+        start_row: The row number to start writing the DataFrame at.
+        index: Whether to write the DataFrame index to the Excel file.
+        header: Whether to write the DataFrame header to the Excel file.
+    """
+
+    overwrite_options = {
+        "o": "replace",
+        "a": "overlay",
+        "n": "new",
+    }
+
+    if not saved_path.exists():
+        with pd.ExcelWriter(saved_path, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name=sheet_name, index=index, header=header)
+
+    else:
+        with pd.ExcelFile(saved_path) as reader:
+            overwrite_option = "n"
+            if sheet_name in reader.sheet_names:
+                overwrite_option = input(
+                    "\nSheet already exists. Overwrite/Append/New? [o/a/n]: "
+                ).lower()
+                start_row = 0
+                if overwrite_option == "a":
+                    existing_df = pd.read_excel(saved_path, sheet_name=sheet_name)
+                    start_row = existing_df.shape[0] + 1
+
+            with pd.ExcelWriter(
+                saved_path,
+                mode="a",
+                if_sheet_exists=overwrite_options[overwrite_option],
+                engine="openpyxl",
+            ) as writer:
+                df.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    startrow=start_row,
+                    index=index,
+                    header=False if overwrite_option == "a" else header,
+                )
 
 
 # This is a false positive on pylint and being tracked in pylint #3060
@@ -1348,7 +1568,9 @@ def export_data(
     dir_path: str,
     func_name: str,
     df: pd.DataFrame = pd.DataFrame(),
-    sheet_name: str = None,
+    sheet_name: Optional[str] = None,
+    figure: Optional[OpenBBFigure] = None,
+    margin: bool = True,
 ) -> None:
     """Export data to a file.
 
@@ -1364,25 +1586,37 @@ def export_data(
         Dataframe of data to save
     sheet_name : str
         If provided.  The name of the sheet to save in excel file
+    figure : Optional[OpenBBFigure]
+        Figure object to save as image file
+    margin : bool
+        Automatically adjust subplot parameters to give specified padding.
     """
+
     if export_type:
-        export_path = compose_export_path(func_name, dir_path)
-        export_folder = str(export_path.parent)
-        export_filename = export_path.name
-        export_path.parent.mkdir(parents=True, exist_ok=True)
+        saved_path = compose_export_path(func_name, dir_path).resolve()
+        saved_path.parent.mkdir(parents=True, exist_ok=True)
         for exp_type in export_type.split(","):
             # In this scenario the path was provided, e.g. --export pt.csv, pt.jpg
             if "." in exp_type:
-                saved_path = os.path.join(export_folder, exp_type)
+                saved_path = saved_path.with_name(exp_type)
             # In this scenario we use the default filename
             else:
-                if ".OpenBB_openbb_terminal" in export_filename:
-                    export_filename = export_filename.replace(
-                        ".OpenBB_openbb_terminal", "OpenBBTerminal"
+                if ".OpenBB_openbb_terminal" in saved_path.name:
+                    saved_path = saved_path.with_name(
+                        saved_path.name.replace(
+                            ".OpenBB_openbb_terminal", "OpenBBTerminal"
+                        )
                     )
-                saved_path = os.path.join(
-                    export_folder, f"{export_filename}.{exp_type}"
-                )
+                saved_path = saved_path.with_suffix(f".{exp_type}")
+
+            exists, overwrite = False, False
+            is_xlsx = exp_type.endswith("xlsx")
+            if sheet_name is None and is_xlsx or not is_xlsx:
+                exists, overwrite = ask_file_overwrite(saved_path)
+
+            if exists and not overwrite:
+                existing = len(list(saved_path.parent.glob(saved_path.stem + "*")))
+                saved_path = saved_path.with_stem(f"{saved_path.stem}_{existing + 1}")
 
             df = df.replace(
                 {
@@ -1398,68 +1632,39 @@ def export_data(
                 regex=True,
             )
 
+            df = df.applymap(revert_lambda_long_number_format)
+
             if exp_type.endswith("csv"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
                 df.to_csv(saved_path)
             elif exp_type.endswith("json"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
                 df.reset_index(drop=True, inplace=True)
                 df.to_json(saved_path)
             elif exp_type.endswith("xlsx"):
+                # since xlsx does not support datetimes with timezones we need to remove it
+                df = remove_timezone_from_dataframe(df)
 
-                if sheet_name is None:
-                    exists, overwrite = ask_file_overwrite(saved_path)
-                    if exists and not overwrite:
-                        return
-                    df.to_excel(saved_path, index=True, header=True)
-
+                if sheet_name is None:  # noqa: SIM223
+                    df.to_excel(
+                        saved_path,
+                        index=True,
+                        header=True,
+                    )
                 else:
-                    if os.path.exists(saved_path):
-                        with pd.ExcelWriter(
-                            saved_path,
-                            mode="a",
-                            if_sheet_exists="new",
-                            engine="openpyxl",
-                        ) as writer:
-                            df.to_excel(
-                                writer, sheet_name=sheet_name, index=True, header=True
-                            )
-                    else:
-                        with pd.ExcelWriter(
-                            saved_path,
-                            engine="openpyxl",
-                        ) as writer:
-                            df.to_excel(
-                                writer, sheet_name=sheet_name, index=True, header=True
-                            )
-            elif exp_type.endswith("png"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
-                plt.savefig(saved_path)
-            elif exp_type.endswith("jpg"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
-                plt.savefig(saved_path)
-            elif exp_type.endswith("pdf"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
-                plt.savefig(saved_path)
-            elif exp_type.endswith("svg"):
-                exists, overwrite = ask_file_overwrite(saved_path)
-                if exists and not overwrite:
-                    return
-                plt.savefig(saved_path)
-            else:
-                console.print("\nWrong export file specified.")
+                    save_to_excel(df, saved_path, sheet_name)
 
-            console.print(f"\nSaved file: {saved_path}")
+            elif saved_path.suffix in [".jpg", ".pdf", ".png", ".svg"]:
+                if figure is None:
+                    console.print("No plot to export.")
+                    continue
+                figure.show(export_image=saved_path, margin=margin)
+            else:
+                console.print("Wrong export file specified.")
+                continue
+
+            console.print(f"Saved file: {saved_path}")
+
+        if figure is not None:
+            figure._exported = True  # pylint: disable=protected-access
 
 
 def get_rf() -> float:
@@ -1483,7 +1688,7 @@ def get_rf() -> float:
 
 def system_clear():
     """Clear screen."""
-    os.system("cls||clear")  # nosec
+    os.system("cls||clear")  # nosec # noqa: S605,S607
 
 
 def excel_columns() -> List[str]:
@@ -1523,7 +1728,7 @@ def handle_error_code(requests_obj, error_code_map):
 
 def prefill_form(ticket_type, menu, path, command, message):
     """Pre-fill Google Form and open it in the browser."""
-    form_url = "https://openbb.co/support?"
+    form_url = "https://my.openbb.co/app/terminal/support?"
 
     params = {
         "type": ticket_type,
@@ -1589,69 +1794,6 @@ def camel_case_split(string: str) -> str:
     return " ".join(results).title()
 
 
-def choice_check_after_action(action=None, choices=None):
-    """Return an action class that checks choice after action call.
-
-    Does that for argument of argparse.ArgumentParser.add_argument function.
-
-    Parameters
-    ----------
-    action : Union[class, function]
-        Action for set args before check choices.
-        If action is class, it must implement argparse.Action methods
-        If action is function, it takes 4 args(parser, namespace, values, option_string)
-        and needs to return value to set dest
-
-    choices : Union[Iterable, function]
-        A container of values that should be allowed.
-        If choices is function, it takes 1 args(value) to check and
-        return bool that value is allowed or not
-
-    Returns
-    -------
-    Class
-        Class extended argparse.Action
-    """
-    if isinstance(choices, Iterable):
-
-        def choice_checker(value):
-            return value in choices
-
-    elif isinstance(choices, types.FunctionType):
-        choice_checker = choices
-    else:
-        raise NotImplementedError("choices argument must be iterable or function")
-
-    if isinstance(action, type):
-
-        class ActionClass(action):
-            def __call__(self, parser, namespace, values, option_string=None):
-                super().__call__(parser, namespace, values, option_string)
-                if not choice_checker(getattr(namespace, self.dest)):
-                    raise ValueError(
-                        f"{getattr(namespace, self.dest)} is not in {choices}"
-                    )
-
-    elif isinstance(action, types.FunctionType):
-
-        class ActionClass(argparse.Action):
-            def __call__(self, parser, namespace, values, option_string=None):
-                setattr(
-                    namespace,
-                    self.dest,
-                    action(parser, namespace, values, option_string),
-                )
-                if not choice_checker(getattr(namespace, self.dest)):
-                    raise ValueError(
-                        f"{getattr(namespace, self.dest)} is not in {choices}"
-                    )
-
-    else:
-        raise NotImplementedError("action argument must be class or function")
-
-    return ActionClass
-
-
 def is_valid_axes_count(
     axes: List[plt.Axes],
     n: int,
@@ -1677,10 +1819,11 @@ def is_valid_axes_count(
     if len(axes) == n:
         return True
 
-    if custom_text:
-        print_text = custom_text
-    else:
-        print_text = f"Expected list of {n} axis item{'s' if n>1 else ''}."
+    print_text = (
+        custom_text
+        if custom_text
+        else f"Expected list of {n} axis item{'s' if n > 1 else ''}."
+    )
 
     if prefix_text:
         print_text = f"{prefix_text} {print_text}"
@@ -1710,6 +1853,7 @@ def check_list_values(valid_values: List[str]):
     check_list_values_from_valid_values_list:
         Function that ensures that the valid values go through and notifies user when value is not valid.
     """
+
     # Define the function with default arguments
     def check_list_values_from_valid_values_list(given_values: str) -> List[str]:
         """Check if argparse argument is an str format.
@@ -1728,10 +1872,11 @@ def check_list_values(valid_values: List[str]):
         """
         success_values = list()
 
-        if "," in given_values:
-            values_found = [val.strip() for val in given_values.split(",")]
-        else:
-            values_found = [given_values]
+        values_found = (
+            [val.strip() for val in given_values.split(",")]
+            if "," in given_values
+            else [given_values]
+        )
 
         for value in values_found:
             # check if the value is valid
@@ -1766,7 +1911,7 @@ def search_wikipedia(expression: str) -> None:
         response_json = json.loads(response.text)
         res = {
             "title": response_json["title"],
-            "url": f"[blue]{response_json['content_urls']['desktop']['page']}[/blue]",
+            "url": f"{response_json['content_urls']['desktop']['page']}",
             "summary": response_json["extract"],
         }
     else:
@@ -1802,8 +1947,8 @@ def screenshot() -> None:
         else:
             console.print("No plots found.\n")
 
-    except Exception as e:
-        console.print(f"Cannot reach window - {e}\n")
+    except Exception as err:
+        console.print(f"Cannot reach window - {err}\n")
 
 
 def screenshot_to_canvas(shot, plot_exists: bool = False):
@@ -1888,12 +2033,12 @@ def screenshot_to_canvas(shot, plot_exists: bool = False):
 
 
 @lru_cache
-def load_json(path: str) -> Dict[str, str]:
+def load_json(path: Path) -> Dict[str, str]:
     """Load a dictionary from a json file path.
 
     Parameter
     ----------
-    path : str
+    path : Path
         The path for the json file
 
     Returns
@@ -1907,7 +2052,7 @@ def load_json(path: str) -> Dict[str, str]:
     except Exception as e:
         console.print(
             f"[red]Failed to load preferred source from file: "
-            f"{obbff.PREFERRED_DATA_SOURCE_FILE}[/red]"
+            f"{get_current_user().preferences.USER_DATA_SOURCES_FILE}[/red]"
         )
         console.print(f"[red]{e}[/red]")
         return {}
@@ -1979,15 +2124,20 @@ def check_start_less_than_end(start_date: str, end_date: str) -> bool:
 
 
 # Write an abstract helper to make requests from a url with potential headers and params
-def request(url: str, method="GET", **kwargs) -> requests.Response:
+def request(
+    url: str, method: str = "get", timeout: int = 0, **kwargs
+) -> requests.Response:
     """Abstract helper to make requests from a url with potential headers and params.
 
     Parameters
     ----------
     url : str
-       Url to make the request to
-    method : str, optional
-       HTTP method to use.  Can be "GET" or "POST", by default "GET"
+        Url to make the request to
+    method : str
+        HTTP method to use.  Choose from:
+        delete, get, head, patch, post, put, by default "get"
+    timeout : int
+        How many seconds to wait for the server to send data
 
     Returns
     -------
@@ -1999,16 +2149,194 @@ def request(url: str, method="GET", **kwargs) -> requests.Response:
     ValueError
         If invalid method is passed
     """
+    method = method.lower()
+    if method not in ["delete", "get", "head", "patch", "post", "put"]:
+        raise ValueError(f"Invalid method: {method}")
+    current_user = get_current_user()
     # We want to add a user agent to the request, so check if there are any headers
     # If there are headers, check if there is a user agent, if not add one.
     # Some requests seem to work only with a specific user agent, so we want to be able to override it.
-    headers = kwargs.pop("headers") if "headers" in kwargs else {}
+    headers = kwargs.pop("headers", {})
+    timeout = timeout or current_user.preferences.REQUEST_TIMEOUT
+
     if "User-Agent" not in headers:
         headers["User-Agent"] = get_user_agent()
-    if method.upper() == "GET":
-        return requests.get(url, headers=headers, timeout=cfg.REQUEST_TIMEOUT, **kwargs)
-    if method.upper() == "POST":
-        return requests.post(
-            url, headers=headers, timeout=cfg.REQUEST_TIMEOUT, **kwargs
+    func = getattr(requests, method)
+    return func(
+        url,
+        headers=headers,
+        timeout=timeout,
+        **kwargs,
+    )
+
+
+def remove_timezone_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Remove timezone information from a dataframe.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The dataframe to remove timezone information from
+
+    Returns
+    -------
+    pd.DataFrame
+        The dataframe with timezone information removed
+    """
+
+    date_cols = []
+    index_is_date = False
+
+    # Find columns and index containing date data
+    if (
+        df.index.dtype.kind == "M"
+        and hasattr(df.index.dtype, "tz")
+        and df.index.dtype.tz is not None
+    ):
+        index_is_date = True
+
+    for col, dtype in df.dtypes.items():
+        if dtype.kind == "M" and hasattr(df.index.dtype, "tz") and dtype.tz is not None:
+            date_cols.append(col)
+
+    # Remove the timezone information
+    for col in date_cols:
+        df[col] = df[col].dt.date
+
+    if index_is_date:
+        index_name = df.index.name
+        df.index = df.index.date
+        df.index.name = index_name
+
+    return df
+
+
+@check_api_key(["API_OPENAI_KEY"])
+def query_LLM_local(query_text, gpt_model):
+    current_user = get_current_user()
+    os.environ["OPENAI_API_KEY"] = current_user.credentials.API_OPENAI_KEY
+
+    # check if index exists
+    index_path = GPT_INDEX_DIRECTORY / f"index_{GPT_INDEX_VER}.json"
+    old_index_paths = [
+        str(x) for x in GPT_INDEX_DIRECTORY.glob("index_*.json") if x != index_path
+    ]
+
+    # define LLM
+    llm_predictor = LLMPredictor(llm=ChatOpenAI(temperature=0.5, model_name=gpt_model))
+    # define prompt helper
+    prompt_helper = PromptHelper(context_window=4096, num_output=256)
+    service_context = ServiceContext.from_defaults(
+        llm_predictor=llm_predictor, prompt_helper=prompt_helper
+    )
+
+    if os.path.exists(index_path):
+        # rebuild storage context
+        storage_context = StorageContext.from_defaults(persist_dir=index_path)
+        index = load_index_from_storage(
+            service_context=service_context, storage_context=storage_context
         )
-    raise ValueError("Method must be GET or POST")
+    else:
+        # If the index file doesn't exist or is of incorrect version, generate a new one
+        # First, remove old version(s), if any
+        for path in old_index_paths:
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                shutil.rmtree(path)
+
+        # Then, generate and save new index
+        # import from print console and say generating index, this might take a while
+        console.print("Generating index, this might take a while....\n")
+
+        # read in documents
+        documents = SimpleDirectoryReader(GPT_INDEX_DIRECTORY / "data/").load_data()
+        index = VectorStoreIndex.from_documents(
+            documents, service_context=service_context
+        )
+
+        # save to disk
+        console.print("Saving index to disk....\n")
+        index.storage_context.persist(index_path)
+
+    current_date = datetime.now().astimezone(pytz.timezone("America/New_York"))
+
+    prompt_string = f"""From the cli argparse help text above, provide the terminal
+        command for {query_text}. If relevant, use the examples as guidance.
+        Provide the exact command along with the parent command with a "/" separation to get that information,
+        and nothing else including any explanation. Don't add any other word such as 'Command to get', 'Answer'
+        or the likes.  If you do not know, reply "I don't know"
+
+        Current date: {current_date.strftime("%Y-%m-%d")}
+        Current day of the week: {current_date.strftime("%A")}
+
+        Remember:
+        1. It is very important to provide the full path of the command including the parent command and loading
+        the particular target before running any subsequent commands
+        2. If you are asked about dates or times, load the target dates, times span during the "load" command
+        before running any subsequent commands. replace all <> with the actual dates and times.  The date format should
+        be YYYY-MM-DD. If there is no date included in the query, do not specify any.
+        3. Country names should be snake case and lower case. example: united_states.
+        4. Always use a comma to separate between countries and no spaces: example: united_states,italy,spain
+        5. Always use "load" command first before running any subsequent commands. example:
+        stocks/load <symbol>/ ....
+        crypto/load <symbol>/ .... etc.
+        6. Do not include --export unless the request asks for the data to be exported or saved to a specific file type.
+        7. Do not make up any subcommands or options for the specific command.
+        8. Do not provide anything that could be interpreted as investment advice.
+        9. Any request asking for options refers to stocks/options.
+
+        Only do what is asked and only provide a single command string, never more than one.
+        """
+
+    # try to get the response from the index
+    try:
+        query_engine = index.as_query_engine()
+        response = query_engine.query(prompt_string)
+        return response.response, response.source_nodes
+    except Exception as e:
+        # check if the error has the following "The model: `gpt-4` does not exist"
+        if "The model: `gpt-4` does not exist" in str(e):
+            console.print(
+                "[red]You do not have access to GPT4 model with your API key."
+                " Please try again with valid API Access.[/red]"
+            )
+            return None
+
+        console.print(f"[red]Something went wrong with the query. {e}[/red]")
+        return None, None
+
+
+def query_LLM_remote(query_text: str):
+    """Query askobb on gpt-3.5 turbo hosted model
+
+    Parameters
+    ----------
+    query_text : str
+        Query string for askobb
+    """
+
+    url = "https://api.openbb.co/askobb"
+
+    data = {"prompt": query_text, "accessToken": get_current_user().profile.token}
+
+    ask_obbrequest_data = request(url, method="POST", json=data, timeout=15).json()
+
+    if "error" in ask_obbrequest_data:
+        console.print(f"[red]{ask_obbrequest_data['error']}[/red]")
+        return None, None
+
+    return ask_obbrequest_data["response"], ask_obbrequest_data["source_nodes"]
+
+
+def check_valid_date(date_string) -> bool:
+    """ "Helper to see if we can parse the string to a date"""
+    try:
+        # Try to parse the string with strptime()
+        datetime.strptime(
+            date_string, "%Y-%m-%d"
+        )  # Use the format your dates are expected to be in
+        return True  # If it can be parsed, then it is a valid date string
+    except ValueError:  # strptime() throws a ValueError if the string can't be parsed
+        return False

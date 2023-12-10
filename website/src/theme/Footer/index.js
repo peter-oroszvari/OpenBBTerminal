@@ -11,6 +11,7 @@ import DiscordIcon from "@site/src/components/Icons/Discord";
 import YoutubeIcon from "@site/src/components/Icons/Youtube";
 import ChevronRightIcon from "@site/src/components/Icons/ChevronRight";
 import clsx from "clsx";
+import { useIFrameContext } from "../Root";
 const nFormatter = (num, digits) => {
   const si = [
     { value: 1, symbol: "" },
@@ -38,10 +39,16 @@ function Footer() {
       .then((res) => res.json())
       .then((data) => setStars(data.stargazers_count));
   }, []);
+  const { isIFrame } = useIFrameContext();
+
+  if (isIFrame) {
+    return null;
+  }
+
   return (
-    <footer className="px-4 border-t dark:border-grey-600/50 lg:px-12 py-14 bg-white dark:bg-grey-900 z-10 overflow-hidden">
-      <div className="flex w-full flex-col justify-between gap-10 md:flex-row md:items-start">
-        <div className="ml-2 mb-2 space-y-10 md:m-0">
+    <footer className="px-4 border-t dark:border-grey-600/50 lg:px-12 py-14 bg-white dark:bg-grey-850 z-10 overflow-hidden flex flex-col gap-10 items-center justify-center">
+      <div className="flex w-full justify-between md:flex-row">
+        <div className="md:items-start mt-2">
           <Link
             aria-label="Home"
             to="/"
@@ -49,6 +56,8 @@ function Footer() {
           >
             <LetteringLogo className="h-[14px] w-[140px]" />
           </Link>
+        </div>
+        <div className="justify-end">
           <a
             className="flex h-[32px] w-[172px] rounded-md border border-grey-300 hover:bg-grey-100 dark:border-white bg-grey-100 dark:bg-white text-xs hover:no-underline"
             href="https://github.com/OpenBB-finance/OpenBBTerminal"
@@ -62,71 +71,31 @@ function Footer() {
               />
               Star us
             </span>
-            <span className="inline-flex w-[40%] items-center justify-center rounded-r-md bg-grey-900 text-grey-500">
+            <span className="inline-flex w-[40%] items-center justify-center rounded-r-md bg-grey-850 text-grey-200">
               {nFormatter(stars, 1) ?? "12.5k"}
             </span>
           </a>
         </div>
-        <div className="grid grid-cols-1 gap-6 sm:gap-16 md:w-2/3 md:grid-cols-4 lg:w-[68%]">
-          {FOOTER_CONTENT.items.map((url) => {
-            return (
-              <div key={url.label}>
-                <Submenu label={url.label} submenu={url.submenus} />
-                <div className="hidden md:block">
-                  <p className="mb-4 text-base font-bold uppercase tracking-widest text-grey-600 dark:text-white">
-                    {url.label}
-                  </p>
-                  <ul className="hidden flex-col gap-3 md:flex">
-                    {url.submenus.map((submenu) => {
-                      return (
-                        <li key={submenu.href}>
-                          {submenu.href.startsWith("https://") ? (
-                            <a
-                              className="whitespace-nowrap inline-flex w-full items-center gap-2 text-sm text-grey-400 dark:hover:text-white"
-                              target="_blank"
-                              rel="noreferrer"
-                              href={submenu.href}
-                            >
-                              {submenu.label}
-                            </a>
-                          ) : (
-                            <Link
-                              to={submenu.href}
-                              className="text-sm font-thin text-grey-400 dark:hover:text-white"
-                            >
-                              {submenu.label}
-                            </Link>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
-      <hr />
       <div className="flex w-full flex-col items-center justify-between gap-4 md:flex-row md:gap-0">
         <div className="flex flex-col items-start justify-end gap-4 self-start font-light text-grey-500 md:flex-row md:items-center">
           <p className="text-sm">{`© ${new Date().getFullYear()} OpenBB`}</p>
           <div className="_divider-x hidden h-[20px] border-[0.5px] md:block" />
           <Link
-            to="/legal/privacy-policy"
+            to="https://openbb.co/legal/privacy-policy"
             className="text-sm dark:hover:text-white"
           >
             Privacy Policy
           </Link>
           <div className="_divider-x hidden h-[20px] border-[0.5px] md:block" />
           <Link
-            to="/legal/terms-of-service"
+            to="https://openbb.co/legal/terms-of-service"
             className="text-sm dark:hover:text-white"
           >
             Terms
           </Link>
         </div>
-        <div className="mt-4 mb-10 grid grid-cols-4 gap-4 self-start md:my-0 md:grid-cols-8 md:self-end">
+        <div className="mt-4 mb-10 grid grid-cols-4 gap-4 self-start md:my-0 md:grid-cols-7 md:self-end">
           <a
             aria-label="GitHub Link"
             className="h-8 w-8 dark:hover:!text-white hover:text-grey-700"

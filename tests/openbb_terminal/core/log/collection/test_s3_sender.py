@@ -4,10 +4,11 @@ from pathlib import Path
 # IMPORTATION THIRDPARTY
 import pytest
 
+from openbb_terminal.core.log.collection import s3_sender
+from openbb_terminal.core.log.constants import DEFAULT_API_URL
+
 # IMPORTATION INTERNAL
 from openbb_terminal.core.log.generation.settings import AWSSettings
-from openbb_terminal.core.log.constants import DEFAULT_API_URL
-from openbb_terminal.core.log.collection import s3_sender
 
 # pylint: disable=W0611
 
@@ -22,7 +23,7 @@ def test_send_to_s3_directly(mocker):
     )
 
     aws_access_key_id = "MOCK_ACCESS_KEY_ID"
-    aws_secret_access_key = "MOCK_ACCESS_SECRET_KEY"
+    aws_secret_access_key = "MOCK_ACCESS_SECRET_KEY"  # noqa: S105
     bucket = "MOCK_BUCKET"
     file = Path(__file__)
     object_key = "MOCK_S3/OBJECT_KEY"
@@ -46,7 +47,7 @@ def test_send_to_s3_directly_exception(mocker):
     )
 
     aws_access_key_id = "MOCK_ACCESS_KEY_ID"
-    aws_secret_access_key = "MOCK_ACCESS_SECRET_KEY"
+    aws_secret_access_key = "MOCK_ACCESS_SECRET_KEY"  # noqa: S105
     bucket = "MOCK_BUCKET"
     file = Path(__file__)
     object_key = "MOCK_S3/OBJECT_KEY"
@@ -79,7 +80,7 @@ def test_send_to_s3_using_presigned_url(mocker, tmp_path):
     file = tmp_path.joinpath("mock_log_file")
     object_key = "MOCK_S3/OBJECT_KEY"
 
-    with open(file, "w") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write("Mocking a log file to send to s3.")
 
     s3_sender.send_to_s3_using_presigned_url(
@@ -96,14 +97,14 @@ def test_send_to_s3_using_presigned_url(mocker, tmp_path):
         (
             AWSSettings(
                 aws_access_key_id="MOCK_AWS_ACCESS_KEY_ID",
-                aws_secret_access_key="MOCK_AWS_ACCESS_KEY",
+                aws_secret_access_key="MOCK_AWS_ACCESS_KEY",  # noqa: S106
             ),
             False,
         ),
         (
             AWSSettings(
                 aws_access_key_id="REPLACE_ME",
-                aws_secret_access_key="REPLACE_ME",
+                aws_secret_access_key="REPLACE_ME",  # noqa: S106
             ),
             True,
         ),
@@ -120,7 +121,7 @@ def test_send_to_s3(aws_settings, mocker, last, tmp_path):
     file = tmp_path.joinpath("mock_log_file")
     object_key = "MOCK_S3/OBJECT_KEY"
 
-    with open(file, "w") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         f.write("Mocking a log file to send to s3.")
 
     assert file.exists()
@@ -159,7 +160,7 @@ def test_send_to_s3_exception(mocker, tmp_path):
             archives_file=archives_file,
             aws_settings=AWSSettings(
                 aws_access_key_id="REPLACE_ME",
-                aws_secret_access_key="REPLACE_ME",
+                aws_secret_access_key="REPLACE_ME",  # noqa: S106
             ),
             file=file,
             object_key=object_key,

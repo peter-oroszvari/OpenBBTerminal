@@ -1,20 +1,20 @@
 """Portfolio Helper"""
 __docformat__ = "numpy"
 
-import logging
-from datetime import datetime, date
-import os
-from pathlib import Path
 import csv
+import logging
+import os
+from datetime import date, datetime
+from pathlib import Path
 from typing import List
+
+import pandas as pd
+import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
-import yfinance as yf
-import pandas as pd
-
-from openbb_terminal.core.config.paths import USER_PORTFOLIO_DATA_DIRECTORY
-from openbb_terminal.rich_config import console
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.portfolio.statics import REGIONS
+from openbb_terminal.rich_config import console
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,9 @@ PERIODS_DAYS = {
     "10y": 10 * 12 * 21,
 }
 
-DEFAULT_HOLDINGS_PATH = USER_PORTFOLIO_DATA_DIRECTORY / "holdings"
+DEFAULT_HOLDINGS_PATH = (
+    get_current_user().preferences.USER_PORTFOLIO_DATA_DIRECTORY / "holdings"
+)
 
 
 def is_ticker(ticker: str) -> bool:
@@ -61,7 +63,7 @@ def is_ticker(ticker: str) -> bool:
         Whether the string is a ticker
     """
     item = yf.Ticker(ticker)
-    return "previous_close" in item.fast_info
+    return "previousClose" in item.fast_info
 
 
 # TODO: Is this being used anywhere?
@@ -142,18 +144,16 @@ def filter_df_by_period(df: pd.DataFrame, period: str = "all") -> pd.DataFrame:
         return df[df.index.strftime("%Y-%m") >= f"{datetime.now().strftime('%Y')}-10"]
     if period == "ytd":
         return df[df.index.strftime("%Y") == datetime.now().strftime("%Y")]
-    if period == "3m":
-        return df[df.index >= (datetime.now() - relativedelta(months=3))]
-    if period == "6m":
-        return df[df.index >= (datetime.now() - relativedelta(months=6))]
-    if period == "1y":
-        return df[df.index >= (datetime.now() - relativedelta(years=1))]
-    if period == "3y":
-        return df[df.index >= (datetime.now() - relativedelta(years=3))]
-    if period == "5y":
-        return df[df.index >= (datetime.now() - relativedelta(years=5))]
-    if period == "10y":
-        return df[df.index >= (datetime.now() - relativedelta(years=10))]
+    period_dict = {
+        "3m": relativedelta(months=3),
+        "6m": relativedelta(months=6),
+        "1y": relativedelta(years=1),
+        "3y": relativedelta(years=3),
+        "5y": relativedelta(years=5),
+        "10y": relativedelta(years=10),
+    }
+    if period in period_dict:
+        return df[df.index >= (datetime.now() - period_dict[period])]
     return df
 
 
@@ -173,12 +173,20 @@ def make_equal_length(df1: pd.DataFrame, df2: pd.DataFrame):
          Both DataFrames returned
     """
     # Match the DataFrames so they share a similar length
-    if len(df1.index) > len(df2.index):
-        df1 = df1.loc[df2.index]
-    elif len(df2.index) > len(df1.index):
-        df2 = df2.loc[df1.index]
+    if isinstance(df1, pd.Series):
+        df1 = df1.to_frame()
+    if isinstance(df2, pd.Series):
+        df2 = df2.to_frame()
+    df2.columns = [str(i) + "2" for i in df2.columns]
+    df_merged = df1.join(df2, how="outer")
+    df_merged = df_merged.fillna(0)
 
-    return df1, df2
+    df1 = df_merged[df1.columns]
+    df2 = df_merged[df2.columns]
+
+    df2.columns = [i[:-1] for i in df2.columns]
+
+    return df1.iloc[:, 0], df2.iloc[:, 0]
 
 
 def get_region_from_country(country: str) -> str:
@@ -261,7 +269,9 @@ def get_info_from_ticker(ticker: str) -> list:
 
     filename = "tickers_info.csv"
 
-    file_path = Path(str(USER_PORTFOLIO_DATA_DIRECTORY), filename)
+    file_path = Path(
+        str(get_current_user().preferences.USER_PORTFOLIO_DATA_DIRECTORY), filename
+    )
 
     if file_path.is_file() and os.stat(file_path).st_size > 0:
         # file exists and is not empty, so append if necessary
@@ -319,7 +329,7 @@ def get_start_date_from_period(period: str) -> date:
         elif 12 >= cm >= 10:
             start_date = date(date.today().year, 10, 1)
         else:
-            print("Error")
+            console.print("Error")
     elif period == "mtd":
         cur_month = date.today().month
         cur_year = date.today().year

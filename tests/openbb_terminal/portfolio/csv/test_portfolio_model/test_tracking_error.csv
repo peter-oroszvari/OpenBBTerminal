@@ -1,14 +1,10 @@
 ,Tracking Error
 mtd,-
-qtd,"Adj Close   NaN
-Total       NaN
-dtype: float64"
+qtd,-
 ytd,-
 3m,-
 6m,-
-1y,"Adj Close   NaN
-Total       NaN
-dtype: float64"
+1y,-
 3y,"Adj Close   NaN
 Total       NaN
 dtype: float64"

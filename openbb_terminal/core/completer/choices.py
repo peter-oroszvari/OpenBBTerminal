@@ -1,10 +1,11 @@
 from argparse import ArgumentParser
 from contextlib import contextmanager
 from inspect import isfunction, unwrap
-from os import environ
 from types import MethodType
 from typing import Callable, List
 from unittest.mock import patch
+
+from openbb_terminal.core.session.current_system import get_current_system
 from openbb_terminal.helper_funcs import check_file_type_saved, check_positive
 from openbb_terminal.rich_config import get_ordered_list_sources
 
@@ -90,7 +91,6 @@ def __mock_parse_known_args_and_warn(
             default=sources[0],  # the first source from the list is the default
             help="Data source to select from",
         )
-    return None
 
 
 def __mock_parse_simple_args(parser: ArgumentParser, other_args: List[str]) -> None:
@@ -108,8 +108,6 @@ def __mock_parse_simple_args(parser: ArgumentParser, other_args: List[str]) -> N
         "-h", "--help", action="store_true", help="show this help message"
     )
     _ = other_args
-
-    return None
 
 
 def __get_command_func(controller, command: str):
@@ -159,14 +157,9 @@ def contains_functions_to_patch(command_func: Callable) -> bool:
 
     co_names = command_func.__code__.co_names
 
-    if "parse_simple_args" in co_names:
-        in_command = True
-    elif "parse_known_args_and_warn" in co_names:
-        in_command = True
-    else:
-        in_command = False
-
-    return in_command
+    return bool(
+        "parse_simple_args" in co_names or "parse_known_args_and_warn" in co_names
+    )
 
 
 @contextmanager
@@ -213,7 +206,7 @@ def __patch_controller_functions(controller):
         ),
     ]
 
-    if environ.get("DEBUG_MODE", "false") != "true":
+    if not get_current_system().DEBUG_MODE:
         rich.start()
     patched_function_list = []
     for patcher in patcher_list:
@@ -221,7 +214,7 @@ def __patch_controller_functions(controller):
 
     yield patched_function_list
 
-    if environ.get("DEBUG_MODE", "false") != "true":
+    if not get_current_system().DEBUG_MODE:
         rich.stop()
     for patcher in patcher_list:
         patcher.stop()
@@ -307,6 +300,7 @@ def build_controller_choice_map(controller) -> dict:
     controller_choice_map: dict = {c: {} for c in controller.controller_choices}
     controller_choice_map["support"] = controller.SUPPORT_CHOICES
     controller_choice_map["about"] = controller.ABOUT_CHOICES
+    controller_choice_map["hold"] = controller.HELP_CHOICES
 
     for command in command_list:
         try:
@@ -318,7 +312,7 @@ def build_controller_choice_map(controller) -> dict:
                 argument_parser=argument_parser
             )
         except Exception as exception:
-            if environ.get("DEBUG_MODE", "false") == "true":
+            if get_current_system().DEBUG_MODE:
                 raise Exception(
                     f"On command : `{command}`.\n{str(exception)}"
                 ) from exception

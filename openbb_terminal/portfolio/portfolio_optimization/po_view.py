@@ -4,10 +4,13 @@ __docformat__ = "numpy"
 # pylint: disable=R0913, R0914, C0302, too-many-branches, too-many-statements, line-too-long
 # flake8: noqa: E501
 
+# IMPORTS STANDARD
 import logging
 import math
 import warnings
+from typing import Optional
 
+# IMPORTATION THIRDPARTY
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,20 +19,22 @@ import riskfolio as rp
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 
-from openbb_terminal.config_plot import PLOT_DPI
 from openbb_terminal.config_terminal import theme
+
+# IMPORTATION INTERNAL
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.decorators import log_start_end
 from openbb_terminal.helper_funcs import plot_autoscale
+from openbb_terminal.portfolio.portfolio_optimization.optimizer_helper import get_kwarg
+from openbb_terminal.portfolio.portfolio_optimization.po_engine import PoEngine
 from openbb_terminal.portfolio.portfolio_optimization.po_model import (
-    validate_inputs,
     get_ef,
+    validate_inputs,
 )
 from openbb_terminal.portfolio.portfolio_optimization.statics import (
     RISK_CHOICES,
     TIME_FACTOR,
 )
-from openbb_terminal.portfolio.portfolio_optimization.optimizer_helper import get_kwarg
-from openbb_terminal.portfolio.portfolio_optimization.po_engine import PoEngine
 from openbb_terminal.rich_config import console
 
 warnings.filterwarnings("ignore")
@@ -38,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 
 @log_start_end(log=logger)
-def display_ef(portfolio_engine: PoEngine = None, **kwargs):
+def display_ef(portfolio_engine: Optional[PoEngine] = None, **kwargs):
     """Display efficient frontier
 
     Parameters
@@ -131,7 +136,7 @@ def display_ef(portfolio_engine: PoEngine = None, **kwargs):
     # Pop chart args
     tangency = kwargs.pop("tangency", False)
     plot_tickers = kwargs.pop("plot_tickers", False)
-    external_axes = kwargs.pop("external_axes", None)
+    external_axes = kwargs.pop("external_axes", False)
 
     frontier, mu, cov, stock_returns, weights, X1, Y1, port = get_ef(
         portfolio_engine,
@@ -140,10 +145,9 @@ def display_ef(portfolio_engine: PoEngine = None, **kwargs):
 
     risk_free_rate = risk_free_rate / TIME_FACTOR[freq.upper()]
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     ax = rp.plot_frontier(
         w_frontier=frontier,
@@ -235,17 +239,19 @@ def display_ef(portfolio_engine: PoEngine = None, **kwargs):
     ax.set_title(f"Efficient Frontier simulating {n_portfolios} portfolios")
     ax.legend(loc="best", scatterpoints=1)
     theme.style_primary_axis(ax)
-    l, b, w, h = ax.get_position().bounds
-    ax.set_position([l, b, w * 0.9, h])
+    L, b, w, h = ax.get_position().bounds
+    ax.set_position([L, b, w * 0.9, h])
     ax1 = ax.get_figure().axes
     ll, bb, ww, hh = ax1[-1].get_position().bounds
     ax1[-1].set_position([ll * 1.02, bb, ww, hh])
-    if external_axes is None:
-        theme.visualize_output(force_tight_layout=False)
+
+    return theme.visualize_output(force_tight_layout=False, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
-def display_plot(portfolio_engine: PoEngine = None, chart_type: str = "pie", **kwargs):
+def display_plot(
+    portfolio_engine: Optional[PoEngine] = None, chart_type: str = "pie", **kwargs
+):
     """
     Display efficient frontier
 
@@ -396,29 +402,24 @@ def display_plot(portfolio_engine: PoEngine = None, chart_type: str = "pie", **k
 
 @log_start_end(log=logger)
 def display_heat(**kwargs):
-
     weights = kwargs.get("weights", None)
     data = kwargs.get("data", None)
     category = kwargs.get("category", None)
     title = kwargs.get("title", "")
-    external_axes = kwargs.get("external_axes", None)
+    external_axes = kwargs.get("external_axes", False)
 
     if len(weights) == 1:
         single_key = list(weights.keys())[0].upper()
         console.print(
             f"[yellow]Heatmap needs at least two values for '{category}', only found '{single_key}'.[/yellow]"
         )
-        return
+        return None
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
-    if len(weights) <= 3:
-        number_of_clusters = len(weights)
-    else:
-        number_of_clusters = None
+    number_of_clusters = len(weights) if len(weights) <= 3 else None
 
     ax = rp.plot_clusters(
         returns=data,
@@ -439,55 +440,53 @@ def display_heat(**kwargs):
 
     if category is None:
         # Vertical dendrogram
-        l, b, w, h = ax[4].get_position().bounds
-        l1 = l * 0.5
+        L, b, w, h = ax[4].get_position().bounds
+        l1 = L * 0.5
         w1 = w * 0.2
         b1 = h * 0.05
-        ax[4].set_position([l - l1, b + b1, w * 0.8, h * 0.95])
+        ax[4].set_position([L - l1, b + b1, w * 0.8, h * 0.95])
         # Heatmap
-        l, b, w, h = ax[1].get_position().bounds
-        ax[1].set_position([l - l1 - w1, b + b1, w * 0.8, h * 0.95])
+        L, b, w, h = ax[1].get_position().bounds
+        ax[1].set_position([L - l1 - w1, b + b1, w * 0.8, h * 0.95])
         w2 = w * 0.2
         # colorbar
-        l, b, w, h = ax[2].get_position().bounds
-        ax[2].set_position([l - l1 - w1 - w2, b, w, h])
+        L, b, w, h = ax[2].get_position().bounds
+        ax[2].set_position([L - l1 - w1 - w2, b, w, h])
         # Horizontal dendrogram
-        l, b, w, h = ax[3].get_position().bounds
-        ax[3].set_position([l - l1 - w1, b, w * 0.8, h])
+        L, b, w, h = ax[3].get_position().bounds
+        ax[3].set_position([L - l1 - w1, b, w * 0.8, h])
     else:
         # Vertical dendrogram
-        l, b, w, h = ax[4].get_position().bounds
-        l1 = l * 0.5
+        L, b, w, h = ax[4].get_position().bounds
+        l1 = L * 0.5
         w1 = w * 0.4
         b1 = h * 0.2
-        ax[4].set_position([l - l1, b + b1, w * 0.6, h * 0.8])
+        ax[4].set_position([L - l1, b + b1, w * 0.6, h * 0.8])
         # Heatmap
-        l, b, w, h = ax[1].get_position().bounds
-        ax[1].set_position([l - l1 - w1, b + b1, w * 0.6, h * 0.8])
+        L, b, w, h = ax[1].get_position().bounds
+        ax[1].set_position([L - l1 - w1, b + b1, w * 0.6, h * 0.8])
         w2 = w * 0.05
         # colorbar
-        l, b, w, h = ax[2].get_position().bounds
-        ax[2].set_position([l - l1 - w1 - w2, b, w, h])
+        L, b, w, h = ax[2].get_position().bounds
+        ax[2].set_position([L - l1 - w1 - w2, b, w, h])
         # Horizontal dendrogram
-        l, b, w, h = ax[3].get_position().bounds
-        ax[3].set_position([l - l1 - w1, b, w * 0.6, h])
+        L, b, w, h = ax[3].get_position().bounds
+        ax[3].set_position([L - l1 - w1, b, w * 0.6, h])
 
     title = "Portfolio - " + title + "\n"
     title += ax[3].get_title(loc="left")
     ax[3].set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output(force_tight_layout=True)
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
 def display_rc(**kwargs):
-
     weights = kwargs.get("weights", None)
     data = kwargs.get("data", None)
     colors = kwargs.get("colors", None)
     title = kwargs.get("title", "")
-    external_axes = kwargs.get("external_axes", None)
+    external_axes = kwargs.get("external_axes", False)
 
     risk_measure = get_kwarg("risk_measure", kwargs)
     risk_free_rate = get_kwarg("risk_free_rate", kwargs)
@@ -497,10 +496,9 @@ def display_rc(**kwargs):
     b_sim = get_kwarg("b_sim", kwargs)
     freq = get_kwarg("freq", kwargs)
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     ax = rp.plot_risk_con(
         w=pd.Series(weights).to_frame(),
@@ -527,25 +525,22 @@ def display_rc(**kwargs):
     title += ax.get_title(loc="left")
     ax.set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output()
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
 def display_hist(**kwargs):
-
     weights = kwargs.get("weights", None)
     data = kwargs.get("data", None)
     colors = kwargs.get("colors", None)
     title = kwargs.get("title", "")
-    external_axes = kwargs.get("external_axes", None)
+    external_axes = kwargs.get("external_axes", False)
 
     alpha = kwargs.get("alpha", 0.05)
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     ax = rp.plot_hist(data, w=pd.Series(weights).to_frame(), alpha=alpha, ax=ax)
     ax.legend(fontsize="x-small", loc="best")
@@ -566,25 +561,22 @@ def display_hist(**kwargs):
     title += ax.get_title(loc="left")
     ax.set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output()
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
 def display_dd(**kwargs):
-
     weights = kwargs.get("weights", None)
     data = kwargs.get("data", None)
     colors = kwargs.get("colors", None)
     title = kwargs.get("title", "")
-    external_axes = kwargs.get("external_axes", None)
+    external_axes = kwargs.get("external_axes", False)
 
     alpha = get_kwarg("alpha", kwargs)
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     nav = data.cumsum()
     ax = rp.plot_drawdown(nav=nav, w=pd.Series(weights).to_frame(), alpha=alpha, ax=ax)
@@ -611,8 +603,7 @@ def display_dd(**kwargs):
     title += ax.get_title(loc="left")
     ax.set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output()
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)
@@ -625,17 +616,17 @@ def display_pie(**kwargs):
         Weights to display, where keys are tickers, and values are either weights or values if -v specified
     title: str
         Title to be used on the plot title
-    external_axes:Optiona[List[plt.Axes]]
+    external_axes:Optional[List[plt.Axes]]
         Optional external axes to plot data on
     """
 
     weights = kwargs.get("weights", None)
     colors = kwargs.get("colors", None)
     title = kwargs.get("title", "")
-    external_axes = kwargs.get("external_axes", None)
+    external_axes = kwargs.get("external_axes", False)
 
     if not weights:
-        return
+        return None
 
     init_stocks = list(weights.keys())
     init_sizes = list(weights.values())
@@ -649,10 +640,9 @@ def display_pie(**kwargs):
     total_size = np.sum(sizes)
     colors = theme.get_colors()
 
-    if external_axes is None:
-        _, ax = plt.subplots(figsize=plot_autoscale(), dpi=PLOT_DPI)
-    else:
-        ax = external_axes[0]
+    _, ax = plt.subplots(
+        figsize=plot_autoscale(), dpi=get_current_user().preferences.PLOT_DPI
+    )
 
     if math.isclose(sum(sizes), 1, rel_tol=0.1):
         _, _, autotexts = ax.pie(
@@ -717,8 +707,7 @@ def display_pie(**kwargs):
     title += "Portfolio Composition"
     ax.set_title(title)
 
-    if external_axes is None:
-        theme.visualize_output()
+    return theme.visualize_output(force_tight_layout=True, external_axes=external_axes)
 
 
 @log_start_end(log=logger)

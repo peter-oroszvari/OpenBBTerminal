@@ -13,21 +13,45 @@ from multiprocessing import cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
 from traceback import FrameSummary, extract_tb, format_list
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from matplotlib import pyplot as plt
 
 from openbb_terminal.core.config.paths import (
     MISCELLANEOUS_DIRECTORY,
     REPOSITORY_DIRECTORY,
 )
-from openbb_terminal.helper_funcs import check_positive
+from openbb_terminal.core.integration_tests.integration_test_coverage import (
+    get_coverage_all_controllers,
+)
+from openbb_terminal.core.integration_tests.utils import (
+    SECTION_LENGTH,
+    to_section_title,
+)
+from openbb_terminal.core.models import (
+    CredentialsModel,
+    PreferencesModel,
+    ProfileModel,
+    SourcesModel,
+    SystemModel,
+    UserModel,
+)
+from openbb_terminal.core.session.current_system import (
+    get_current_system,
+    set_current_system,
+    set_system_variable,
+)
+from openbb_terminal.core.session.current_user import get_current_user, set_current_user
+from openbb_terminal.core.session.utils import load_dict_to_model
+from openbb_terminal.helper_funcs import check_non_negative
 from openbb_terminal.rich_config import console
+from openbb_terminal.routine_functions import is_reset
 from openbb_terminal.terminal_controller import (
     insert_start_slash,
-    obbff,
     replace_dynamic,
     terminal,
 )
-from openbb_terminal.terminal_helper import is_reset, suppress_stdout
+from openbb_terminal.terminal_helper import suppress_stdout
 
 logger = logging.getLogger(__name__)
 special_arguments_values = [
@@ -41,47 +65,7 @@ special_arguments_values = [
     "currency_vs",
 ]
 
-SECTION_LENGTH = 90
-STYLES = [
-    "[bold]",
-    "[/bold]",
-    "[red]",
-    "[/red]",
-    "[green]",
-    "[/green]",
-    "[bold red]",
-    "[/bold red]",
-]
 SCRIPTS_DIRECTORY = MISCELLANEOUS_DIRECTORY / "integration_tests_scripts"
-
-
-def to_section_title(title: str, char: str = "=") -> str:
-    """Format title for test mode.
-
-    Parameters
-    ----------
-    title: str
-        The title to format
-
-    Returns
-    -------
-    str
-        The formatted title
-    """
-    title = " " + title + " "
-
-    len_styles = 0
-    for style in STYLES:
-        if style in title:
-            len_styles += len(style)
-
-    n = int((SECTION_LENGTH - len(title) + len_styles) / 2)
-    formatted_title = char * n + title + char * n
-    formatted_title = formatted_title + char * (
-        SECTION_LENGTH - len(formatted_title) + len_styles
-    )
-
-    return formatted_title
 
 
 TEST_FILES = sorted(list(SCRIPTS_DIRECTORY.glob("**/*.openbb")))
@@ -125,7 +109,6 @@ def convert_list_to_test_files(path_list: List[str]) -> List[Path]:
     test_files = []
 
     for path in path_list:
-
         if path.startswith(
             str(Path("openbb_terminal", "core", "integration_tests", "scripts"))
         ):
@@ -260,12 +243,12 @@ def run_scripts(
         simulate_argv = f"/{'/'.join([line.rstrip() for line in lines])}"
         file_cmds = simulate_argv.replace("//", "/home/").split()
         file_cmds = insert_start_slash(file_cmds) if file_cmds else file_cmds
-        if export_folder:
-            file_cmds = [f"export {export_folder}{' '.join(file_cmds)}"]
-        else:
-            file_cmds = [" ".join(file_cmds)]
+        file_cmds = (
+            [f"export {export_folder}{' '.join(file_cmds)}"]
+            if export_folder
+            else [" ".join(file_cmds)]
+        )
 
-        obbff.REMEMBER_CONTEXTS = 0
         if verbose:
             terminal(file_cmds, test_mode=True)
         else:
@@ -277,6 +260,8 @@ def run_test(
     file: Path,
     verbose: bool = False,
     special_arguments: Optional[Dict[str, str]] = None,
+    user: Optional[Dict] = None,
+    system: Optional[Dict] = None,
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
     """Run tests in a single process.
 
@@ -294,6 +279,23 @@ def run_test(
     Tuple[str, Optional[Dict[str, Any]]]
         The name of the file and the exception
     """
+
+    if user:
+        profile = user.get("profile", {})
+        credentials = user.get("credentials", {})
+        preferences = user.get("preferences", {})
+        sources = user.get("sources", {})
+        user_model = UserModel(
+            profile=load_dict_to_model(profile, ProfileModel),
+            credentials=load_dict_to_model(credentials, CredentialsModel),  # type: ignore
+            preferences=load_dict_to_model(preferences, PreferencesModel),
+            sources=load_dict_to_model(sources, SourcesModel),
+        )
+        set_current_user(user_model)
+
+    if system:
+        set_current_system(load_dict_to_model(system, SystemModel))
+
     file_short_name = str(file).replace(str(SCRIPTS_DIRECTORY), "")[1:]
 
     try:
@@ -353,6 +355,7 @@ def run_test_files(
     verbose: bool = False,
     special_arguments: Optional[Dict[str, str]] = None,
     subprocesses: Optional[int] = None,
+    ordered: bool = False,
 ) -> Tuple[int, int, Dict[str, Dict[str, Any]], float]:
     """Runs the test scripts and returns the fails dictionary
 
@@ -366,23 +369,23 @@ def run_test_files(
         The special arguments to use in the scripts
     subprocesses: Optional[int]
         The number of subprocesses to use to run the tests
+    ordered: bool
+        Multiprocessing is not ordered by default. Use this flag to run the tests in order
 
     Returns
     -------
     Tuple[int, int, Dict[str, Dict[str, Any]], float]
     """
-    os.environ["DEBUG_MODE"] = "true"
     n_successes = 0
     n_failures = 0
     fails: Dict[str, Dict[str, Any]] = {}
 
     if test_files:
-
         n = len(test_files)
 
         start = time.time()
 
-        if verbose and not subprocesses:
+        if subprocesses == 0:
             console.print(
                 f"* Running {n} script(s) sequentially...\n",
                 style="bold",
@@ -407,24 +410,30 @@ def run_test_files(
                 style="bold",
             )
             with Pool(processes=subprocesses) as pool:
-
                 # Choosing chunksize: line 477 .../lib/python3.9/multiprocessing/pool.py
                 chunksize, extra = divmod(n, subprocesses * 4)
                 if extra:
                     chunksize += 1
 
+                runner: Callable = pool.imap if ordered else pool.imap_unordered
+
                 for i, result in enumerate(
-                    pool.imap(
+                    runner(
                         partial(
                             run_test,
                             verbose=verbose,
                             special_arguments=special_arguments,
+                            # We inject user and system as dict because pickle cannot
+                            # serialize nested classes and the new process has to be
+                            # aware of the current user and system, otherwise it will
+                            # pick the defaults.
+                            user=get_current_user().to_dict(),
+                            system=get_current_system().to_dict(),
                         ),
                         test_files,
                         chunksize=chunksize,
                     )
                 ):
-
                     file_short_name, exception = result
                     if exception:
                         n_failures += 1
@@ -463,9 +472,10 @@ def display_failures(fails: Dict[str, Dict[str, Any]]):
             for i, line in enumerate(formatted_tb):
                 if "openbb_terminal" not in line:
                     style = "rgb(128,128,128)"
-                elif i == len(formatted_tb) - 1:
-                    style = "yellow"
-                elif "openbb_terminal" not in formatted_tb[i + 1]:
+                elif (
+                    i == len(formatted_tb) - 1
+                    or "openbb_terminal" not in formatted_tb[i + 1]
+                ):
                     style = "yellow"
 
                 console.print(line, end="", style=style)
@@ -498,10 +508,9 @@ def display_summary(
     """
 
     if fails:
-        console.print("\n" + to_section_title("integration test summary"))
+        console.print("\n" + to_section_title("Integration Test Summary"))
 
         for file, exception in fails.items():
-
             # Assuming the broken command is the last one called in the traceback
             broken_cmd = "unknown"
             frame: FrameSummary
@@ -536,6 +545,7 @@ def run_test_session(
     special_arguments: Optional[Dict[str, str]] = None,
     verbose: bool = False,
     subprocesses: Optional[int] = None,
+    ordered: bool = False,
 ):
     """Run the integration test session
 
@@ -557,11 +567,13 @@ def run_test_session(
         Whether or not to print the output of the scripts
     subprocesses
         The number of subprocesses to use to run the tests
+    ordered: bool
+        Multiprocessing is not ordered by default. Use this flag to run the tests in order.
     """
     console.print(to_section_title("integration test session starts"), style="bold")
     test_files = collect_test_files(path_list, skip_list)
     n_successes, n_failures, fails, seconds = run_test_files(
-        test_files, verbose, special_arguments, subprocesses
+        test_files, verbose, special_arguments, subprocesses, ordered
     )
     display_failures(fails)
     display_summary(fails, n_successes, n_failures, seconds)
@@ -639,7 +651,7 @@ def parse_args_and_run():
         help="The number of subprocesses to use to run the tests."
         " Default is the minimum between number of collected scripts and CPUs.",
         dest="subprocesses",
-        type=check_positive,
+        type=check_non_negative,
         default=None,
     )
     parser.add_argument(
@@ -647,6 +659,22 @@ def parse_args_and_run():
         "--list",
         help="List available scripts",
         dest="list_",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "-o",
+        "--ordered",
+        help="Display results in test starting order.",
+        dest="ordered",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "-c",
+        "--coverage",
+        help="Display integration test coverage.",
+        dest="coverage",
         action="store_true",
         default=False,
     )
@@ -661,28 +689,35 @@ def parse_args_and_run():
 
     ns_parser, unknown_args = parser.parse_known_args()
 
+    if ns_parser.coverage:
+        return get_coverage_all_controllers()
+
     # Allow the tester to send a path without the -p flag
     if not ns_parser.path and unknown_args:
         ns_parser.path = [u for u in unknown_args if u[0] != "-"]
 
     special_args_dict = {x: getattr(ns_parser, x) for x in special_arguments_values}
 
-    if ns_parser.verbose and ns_parser.subprocesses:
+    if ns_parser.verbose and (
+        ns_parser.subprocesses is None or ns_parser.subprocesses > 1
+    ):
         console.print(
             "WARNING: verbose mode and multiprocessing are not compatible. "
-            "The output of the scripts is mixed up. Consider running without --subproc.\n",
+            "Several processes running simultaneously will mix the output of the "
+            "scripts in the screen. Consider running with --subproc 0.\n",
             style="yellow",
         )
 
     if ns_parser.list_:
         return display_available_scripts(ns_parser.path, ns_parser.skip)
 
-    run_test_session(
+    return run_test_session(
         path_list=ns_parser.path,
         skip_list=ns_parser.skip,
         special_arguments=special_args_dict,
         verbose=ns_parser.verbose,
         subprocesses=ns_parser.subprocesses,
+        ordered=ns_parser.ordered,
     )
 
 
@@ -694,11 +729,24 @@ def main():
     if "--test" in sys.argv:
         sys.argv.remove("--test")
 
-    os.environ["OPENBB_ENABLE_QUICK_EXIT"] = "True"
-    os.environ["OPENBB_LOG_COLLECT"] = "False"
-    os.environ["OPENBB_USE_ION"] = "False"
-    os.environ["OPENBB_USE_PROMPT_TOOLKIT"] = "False"
+    # User
+    current_user = get_current_user()
+    current_user.preferences.ENABLE_EXIT_AUTO_HELP = False
+    current_user.preferences.USE_PROMPT_TOOLKIT = False
+    current_user.preferences.REMEMBER_CONTEXTS = False
+    current_user.preferences.PLOT_ENABLE_PYWRY = False
+    current_user.preferences.USE_INTERACTIVE_DF = False
+    set_current_user(current_user)
 
+    # System
+    set_system_variable("HEADLESS", True)
+    set_system_variable("DEBUG_MODE", True)
+    set_system_variable("LOG_COLLECT", False)
+
+    # Portfolio optimization - automatically close matplotlib figures
+    plt.ion()
+
+    # Run integration tests
     parse_args_and_run()
 
 

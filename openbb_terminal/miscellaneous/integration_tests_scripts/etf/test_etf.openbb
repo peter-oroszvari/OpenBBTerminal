@@ -2,14 +2,24 @@ etf
 load spy
 overview
 holdings
+holdings_perf --limit 3
 weights
-weights -m 10
-summary
+weights --raw
 candle
 candle --raw
 candle --sort adjclose --reverse --raw
+candle -ma
 candle -t --ma 4
+candle -t -ma
 news
-pir
 compare spy,ivv
+disc
+..
+ca
+quit
+help
+search -n vol
+ta
+..
+reset
 exit

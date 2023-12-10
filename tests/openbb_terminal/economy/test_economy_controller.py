@@ -1,15 +1,20 @@
 # IMPORTATION STANDARD
-import os
+
 import datetime
+import os
+
+import pandas as pd
 
 # IMPORTATION THIRDPARTY
 import pytest
-import pandas as pd
 from pandas import Timestamp
 
 # IMPORTATION INTERNAL
+from openbb_terminal.core.session.current_user import (
+    PreferencesModel,
+    copy_user,
+)
 from openbb_terminal.economy import economy_controller
-
 
 # pylint: disable=E1101
 # pylint: disable=W0603
@@ -126,13 +131,7 @@ MOCK_DETAIL = {
 
 
 @pytest.mark.vcr(record_mode="none")
-@pytest.mark.parametrize(
-    "queue, expected",
-    [
-        (["load", "help"], ["help"]),
-        (["quit", "help"], ["help"]),
-    ],
-)
+@pytest.mark.parametrize("queue, expected", [(["quit", "help"], ["help"])])
 def test_menu_with_queue(expected, mocker, queue):
     path_controller = "openbb_terminal.economy.economy_controller"
 
@@ -148,13 +147,14 @@ def test_menu_with_queue(expected, mocker, queue):
 
 @pytest.mark.vcr(record_mode="none")
 def test_menu_without_queue_completion(mocker):
-    path_controller = "openbb_terminal.economy.economy_controller"
-
     # ENABLE AUTO-COMPLETION : HELPER_FUNCS.MENU
+    preferences = PreferencesModel(USE_PROMPT_TOOLKIT=True)
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.USE_PROMPT_TOOLKIT",
-        new=True,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
+
     mocker.patch(
         target="openbb_terminal.parent_classes.session",
     )
@@ -164,16 +164,11 @@ def test_menu_without_queue_completion(mocker):
     )
 
     # DISABLE AUTO-COMPLETION : CONTROLLER.COMPLETER
-    mocker.patch.object(
-        target=economy_controller.obbff,
-        attribute="USE_PROMPT_TOOLKIT",
-        new=True,
+    mocker.patch(
+        target="openbb_terminal.economy.economy_controller.session",
     )
     mocker.patch(
-        target=f"{path_controller}.session",
-    )
-    mocker.patch(
-        target=f"{path_controller}.session.prompt",
+        target="openbb_terminal.economy.economy_controller.session.prompt",
         return_value="quit",
     )
 
@@ -191,10 +186,11 @@ def test_menu_without_queue_sys_exit(mock_input, mocker):
     path_controller = "openbb_terminal.economy.economy_controller"
 
     # DISABLE AUTO-COMPLETION
-    mocker.patch.object(
-        target=economy_controller.obbff,
-        attribute="USE_PROMPT_TOOLKIT",
-        new=False,
+    preferences = PreferencesModel(USE_PROMPT_TOOLKIT=True)
+    mock_current_user = copy_user(preferences=preferences)
+    mocker.patch(
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
     mocker.patch(
         target=f"{path_controller}.session",
@@ -491,7 +487,7 @@ def test_call_func_expect_queue(expected_queue, func, queue):
             [],
             dict(
                 group="sector",
-                sortby="MarketCap",
+                sortby="Market Cap",
                 ascend=True,
                 export="csv",
                 sheet_name=None,
@@ -534,18 +530,6 @@ def test_call_func_expect_queue(expected_queue, func, queue):
             ),
         ),
         (
-            "call_spectrum",
-            [
-                "--g=sector",
-                "--export=png",
-            ],
-            "finviz_view.display_spectrum",
-            [],
-            dict(
-                group="sector",
-            ),
-        ),
-        (
             "call_map",
             [
                 "--period=1w",
@@ -558,14 +542,6 @@ def test_call_func_expect_queue(expected_queue, func, queue):
                 map_filter="world",
             ),
         ),
-        # TODO: Add `Investing` to sources again when `investpy` is fixed
-        # (
-        #     "call_ycrv",
-        #     ["--country=portugal", "--export=csv", "--source=Investing"],
-        #     "investingcom_view.display_yieldcurve",
-        #     [],
-        #     dict(country="portugal", export="csv", sheet_name=None raw=False),
-        # ),
         (
             "call_events",
             [
@@ -619,6 +595,219 @@ def test_call_func_expect_queue(expected_queue, func, queue):
                 limit=20,
             ),
         ),
+        (
+            "call_gdp",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_gdp",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                units="USD",
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_rgdp",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_real_gdp",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                raw=False,
+                units="PC_CHGPY",
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_fgdp",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_gdp_forecast",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                quarterly=False,
+                types="real",
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_debt",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_debt",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_cpi",
+            [
+                "--countries=united states",
+                "--frequency=monthly",
+                "--units=growth_same",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "fred_view.plot_cpi",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                frequency="monthly",
+                units="growth_same",
+                harmonized=False,
+                options=False,
+                smart_select=True,
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_ccpi",
+            [
+                "--countries=united states",
+                "--frequency=M",
+                "--perspective=TOT",
+                "--units=AGRWTH",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_cpi",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                frequency="M",
+                perspective="TOT",
+                units="AGRWTH",
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_balance",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_balance",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_revenue",
+            [
+                "--countries=united states",
+                "--units=PC_GDP",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_revenue",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                units="PC_GDP",
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_spending",
+            [
+                "--countries=united states",
+                "--units=PC_GDP",
+                "--perspective=TOT",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_spending",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                perspective="TOT",
+                units="PC_GDP",
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
+        (
+            "call_trust",
+            [
+                "--countries=united states",
+                "--start=2021-01-01",
+                "--end=2023-01-01",
+                "--export=csv",
+            ],
+            "oecd_view.plot_trust",
+            [],
+            dict(
+                countries=["united states"],
+                start_date=datetime.datetime(2021, 1, 1, 0, 0),
+                end_date=datetime.datetime(2023, 1, 1, 0, 0),
+                raw=False,
+                export="csv",
+                sheet_name=None,
+            ),
+        ),
     ],
 )
 def test_call_func(
@@ -628,6 +817,9 @@ def test_call_func(
 
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
+
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
 
     if mocked_func:
         mock = mocker.Mock()
@@ -773,14 +965,20 @@ def test_call_macro(mocked_func, other_args, called_args, called_kwargs, mocker)
 
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
+
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
     # MOCK the econdb.get_aggregated_macro_data
     mocker.patch(
         target=f"{path_controller}.econdb_model.get_aggregated_macro_data",
         return_value=(MOCK_DF, MOCK_UNITS, "MOCK_NOTHINGS"),
     )
+
+    preferences = PreferencesModel(ENABLE_EXIT_AUTO_HELP=False)
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.ENABLE_EXIT_AUTO_HELP",
-        new=False,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
 
     mock = mocker.Mock()
@@ -807,6 +1005,9 @@ def test_call_fred_query(mocker):
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
 
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
+
     mocker.patch(
         target=f"{path_controller}.fred_model.get_series_notes",
         return_value=MOCK_FRED_NOTES,
@@ -829,7 +1030,7 @@ def test_call_fred_query(mocker):
     "other_args, mocked_func, called_args, called_kwargs",
     [
         (
-            ["--parameter=dgs2,dgs5"],
+            ["--parameter", "dgs2,dgs5"],
             "fred_view.display_fred_series",
             [],
             dict(
@@ -844,7 +1045,7 @@ def test_call_fred_query(mocker):
             ),
         ),
         (
-            ["--parameter=DgS2,dgs5", "--export=csv", "--raw"],
+            ["--parameter", "DgS2,dgs5", "--export=csv", "--raw"],
             "fred_view.display_fred_series",
             [],
             dict(
@@ -859,7 +1060,7 @@ def test_call_fred_query(mocker):
             ),
         ),
         (
-            ["--parameter=DgS2,dgs5", "--export=csv", "--start=2022-10-10"],
+            ["--parameter", "DgS2,dgs5", "--export=csv", "--start=2022-10-10"],
             "fred_view.display_fred_series",
             [],
             dict(
@@ -881,6 +1082,9 @@ def test_call_fred_params(mocked_func, other_args, called_args, called_kwargs, m
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
 
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
+
     # MOCK the fred functions used
     mocker.patch(
         target=f"{path_controller}.fred_model.check_series_id",
@@ -890,9 +1094,14 @@ def test_call_fred_params(mocked_func, other_args, called_args, called_kwargs, m
         target=f"{path_controller}.fred_model.get_aggregated_series_data",
         return_value=(MOCK_FRED_AGG, MOCK_DETAIL),
     )
+    preferences = PreferencesModel(
+        ENABLE_EXIT_AUTO_HELP=False,
+        ENABLE_CHECK_API=False,
+    )
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.ENABLE_EXIT_AUTO_HELP",
-        new=False,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
 
     mock = mocker.Mock(return_value=(MOCK_FRED_AGG, MOCK_DETAIL))
@@ -943,15 +1152,20 @@ def test_call_index(mocker):
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
 
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
+
     # MOCK the fred functions used
     mocker.patch(
         target=f"{path_controller}.yfinance_model.get_index",
         return_value=MOCK_INDEX,
     )
 
+    preferences = PreferencesModel(ENABLE_EXIT_AUTO_HELP=False)
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.ENABLE_EXIT_AUTO_HELP",
-        new=False,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
 
     mock = mocker.Mock()
@@ -964,26 +1178,13 @@ def test_call_index(mocker):
     controller.choices = {}
     controller.call_index(["-i", "SP500,DOW_DJUS", "-s", "2022-10-01"])
 
-    mock.assert_called_once_with(
-        **dict(
-            indices=["SP500", "DOW_DJUS"],
-            start_date="2022-10-01",
-            end_date=None,
-            raw=False,
-            export="",
-            sheet_name=None,
-            interval="1d",
-            column="Adj Close",
-            returns=False,
-        )
-    )
+    mock.assert_called_once()
 
 
 MOCK_TREASURY_DEFAULT = pd.DataFrame.from_dict(
     {
-        "Nominal_3-month": {"2022-10-01": 3.87},
-        "Nominal_10-year": {"2022-10-01": 3.87},
-        "Long-term average_Longer than 10-year": {"2022-10-01": 1.9},
+        "3m": {"2022-10-01": 3.87},
+        "10y": {"2022-10-01": 3.87},
     },
     orient="index",
 )
@@ -994,13 +1195,11 @@ MOCK_TREASURY_DEFAULT = pd.DataFrame.from_dict(
     "other_args, mocked_func, called_args, called_kwargs",
     [
         (
-            ["-m=3m,10y", "-t=nominal,average", "-e=2022-11-04"],
-            "econdb_view.show_treasuries",
+            ["-m=3m,10y", "-e=2022-11-04"],
+            "fedreserve_view.show_treasuries",
             [],
             dict(
                 maturities=["3m", "10y"],
-                instruments=["nominal", "average"],
-                frequency="monthly",
                 start_date="1934-01-31",
                 end_date="2022-11-04",
                 raw=False,
@@ -1015,14 +1214,19 @@ def test_call_treasury(mocked_func, other_args, called_args, called_kwargs, mock
 
     # MOCK REMOVE
     mocker.patch(target=f"{path_controller}.os.remove")
+
+    # MOCK UPDATE_RUNTIME_CHOICES
+    mocker.patch(target=f"{path_controller}.EconomyController.update_runtime_choices")
     # MOCK the econdb.get_aggregated_macro_data
     mocker.patch(
-        target=f"{path_controller}.econdb_model.get_treasuries",
+        target=f"{path_controller}.fedreserve_model.get_treasury_rates",
         return_value=MOCK_TREASURY_DEFAULT,
     )
+    preferences = PreferencesModel(ENABLE_EXIT_AUTO_HELP=False)
+    mock_current_user = copy_user(preferences=preferences)
     mocker.patch(
-        target="openbb_terminal.feature_flags.ENABLE_EXIT_AUTO_HELP",
-        new=False,
+        target="openbb_terminal.core.session.current_user.__current_user",
+        new=mock_current_user,
     )
 
     mock = mocker.Mock()
@@ -1034,8 +1238,6 @@ def test_call_treasury(mocked_func, other_args, called_args, called_kwargs, mock
     controller = economy_controller.EconomyController(queue=None)
     controller.choices = {}
     controller.call_treasury(other_args)
-    assert "treasury" in controller.DATASETS
-    assert not controller.DATASETS["treasury"].empty
     if called_args or called_kwargs:
         mock.assert_called_once_with(*called_args, **called_kwargs)
     else:

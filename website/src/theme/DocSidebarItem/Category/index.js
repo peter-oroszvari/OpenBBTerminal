@@ -1,25 +1,27 @@
-import React, {useEffect, useMemo} from 'react';
-import clsx from 'clsx';
+import Link from "@docusaurus/Link";
+import { translate } from "@docusaurus/Translate";
+import { useLocation } from "@docusaurus/router";
 import {
-  ThemeClassNames,
-  useThemeConfig,
-  usePrevious,
   Collapsible,
+  ThemeClassNames,
   useCollapsible,
-} from '@docusaurus/theme-common';
+  usePrevious,
+  useThemeConfig,
+} from "@docusaurus/theme-common";
 import {
-  isActiveSidebarItem,
   findFirstCategoryLink,
-  useDocSidebarItemsExpandedState,
+  isActiveSidebarItem,
   isSamePath,
-} from '@docusaurus/theme-common/internal';
-import Link from '@docusaurus/Link';
-import {translate} from '@docusaurus/Translate';
-import useIsBrowser from '@docusaurus/useIsBrowser';
-import DocSidebarItems from '@theme/DocSidebarItems';
+  useDocSidebarItemsExpandedState,
+} from "@docusaurus/theme-common/internal";
+import useIsBrowser from "@docusaurus/useIsBrowser";
+import DocSidebarItems from "@theme/DocSidebarItems";
+import clsx from "clsx";
+import React, { useEffect, useMemo } from "react";
+import { useIFrameContext } from "../../Root";
 // If we navigate to a category and it becomes active, it should automatically
 // expand itself
-function useAutoExpandActiveCategory({isActive, collapsed, updateCollapsed}) {
+function useAutoExpandActiveCategory({ isActive, collapsed, updateCollapsed }) {
   const wasActive = usePrevious(isActive);
   useEffect(() => {
     const justBecameActive = isActive && !wasActive;
@@ -36,11 +38,11 @@ function useAutoExpandActiveCategory({isActive, collapsed, updateCollapsed}) {
  * see https://github.com/facebookincubator/infima/issues/36#issuecomment-772543188
  * see https://github.com/facebook/docusaurus/issues/3030
  */
-function useCategoryHrefWithSSRFallback(item) {
+function useCategoryHrefWithSSRFallback(item, href) {
   const isBrowser = useIsBrowser();
   return useMemo(() => {
-    if (item.href) {
-      return item.href;
+    if (href) {
+      return href;
     }
     // In these cases, it's not necessary to render a fallback
     // We skip the "findFirstCategoryLink" computation
@@ -50,17 +52,17 @@ function useCategoryHrefWithSSRFallback(item) {
     return findFirstCategoryLink(item);
   }, [item, isBrowser]);
 }
-function CollapseButton({categoryLabel, onClick}) {
+function CollapseButton({ categoryLabel, onClick }) {
   return (
     <button
       aria-label={translate(
         {
-          id: 'theme.DocSidebarItem.toggleCollapsedCategoryAriaLabel',
+          id: "theme.DocSidebarItem.toggleCollapsedCategoryAriaLabel",
           message: "Toggle the collapsible sidebar category '{label}'",
           description:
-            'The ARIA label to toggle the collapsible sidebar category',
+            "The ARIA label to toggle the collapsible sidebar category",
         },
-        {label: categoryLabel},
+        { label: categoryLabel }
       )}
       type="button"
       className="clean-btn menu__caret"
@@ -76,16 +78,24 @@ export default function DocSidebarItemCategory({
   index,
   ...props
 }) {
-  const {items, label, collapsible, className, href} = item;
+  const { items, label, collapsible, className, href } = item;
+  const labelToHrefMap = {
+    "OpenBB Terminal": "/terminal",
+    "OpenBB Platform": "/platform",
+    "OpenBB Bot": "/bot",
+    "OpenBB Terminal Pro": "/pro",
+    "OpenBB Excel Add-in": "/excel",
+  };
+  const newHref = labelToHrefMap[label] || href;
   const {
     docs: {
-      sidebar: {autoCollapseCategories},
+      sidebar: { autoCollapseCategories },
     },
   } = useThemeConfig();
-  const hrefWithSSRFallback = useCategoryHrefWithSSRFallback(item);
+  const hrefWithSSRFallback = useCategoryHrefWithSSRFallback(item, newHref);
   const isActive = isActiveSidebarItem(item, activePath);
-  const isCurrentPage = isSamePath(href, activePath);
-  const {collapsed, setCollapsed} = useCollapsible({
+  const isCurrentPage = isSamePath(newHref, activePath);
+  const { collapsed, setCollapsed } = useCollapsible({
     // Active categories are always initialized as expanded. The default
     // (`item.collapsed`) is only used for non-active categories.
     initialState: () => {
@@ -95,13 +105,13 @@ export default function DocSidebarItemCategory({
       return isActive ? false : item.collapsed;
     },
   });
-  const {expandedItem, setExpandedItem} = useDocSidebarItemsExpandedState();
+  const { expandedItem, setExpandedItem } = useDocSidebarItemsExpandedState();
   // Use this instead of `setCollapsed`, because it is also reactive
   const updateCollapsed = (toCollapsed = !collapsed) => {
     setExpandedItem(toCollapsed ? null : index);
     setCollapsed(toCollapsed);
   };
-  useAutoExpandActiveCategory({isActive, collapsed, updateCollapsed});
+  useAutoExpandActiveCategory({ isActive, collapsed, updateCollapsed });
   useEffect(() => {
     if (
       collapsible &&
@@ -112,32 +122,55 @@ export default function DocSidebarItemCategory({
       setCollapsed(true);
     }
   }, [collapsible, expandedItem, index, setCollapsed, autoCollapseCategories]);
+  const { isIFrame } = useIFrameContext();
+  const dontShowLink =
+    isIFrame && ["OpenBB Terminal", "OpenBB SDK", "OpenBB Bot"].includes(label);
+
+    const location = useLocation();
+    const isProPage = location.pathname.startsWith("/pro");
+    const isExcelPage = location.pathname.startsWith("/excel");
+
+    // Hide the OpenBB Terminal Pro section if we're not on a /pro or /excel page
+    if (item.customProps?.hiddenByDefault && !(isProPage || isExcelPage)) {
+      return null;
+    }
+
+    // Temporary, remove to show Excel tab
+    if (item.customProps?.onlyDirectAccess && !isExcelPage) {
+      return null;
+    }
+
   return (
     <li
       className={clsx(
         ThemeClassNames.docs.docSidebarItemCategory,
         ThemeClassNames.docs.docSidebarItemCategoryLevel(level),
-        'menu__list-item',
+        "menu__list-item",
         {
-          'menu__list-item--collapsed': collapsed,
+          "menu__list-item--collapsed": collapsed,
         },
-        className,
-      )}>
+        className
+      )}
+    >
       <div
-        className={clsx('menu__list-item-collapsible', {
-          'menu__list-item-collapsible--active': isCurrentPage,
-        })}>
+        className={clsx("menu__list-item-collapsible", {
+          "menu__list-item-collapsible--active": isCurrentPage,
+        })}
+      >
         <Link
-          className={clsx('menu__link', {
-            'menu__link--sublist': collapsible,
-            'menu__link--sublist-caret': !href && collapsible,
-            'menu__link--active': isActive,
+          className={clsx("menu__link", {
+            "menu__link--sublist": collapsible,
+            "menu__link--sublist-caret": !newHref && collapsible,
+            "menu__link--active": isActive,
           })}
           onClick={
             collapsible
               ? (e) => {
+                  if (dontShowLink) {
+                    e.preventDefault();
+                  }
                   onItemClick?.(item);
-                  if (href) {
+                  if (newHref) {
                     updateCollapsed(false);
                   } else {
                     e.preventDefault();
@@ -145,16 +178,20 @@ export default function DocSidebarItemCategory({
                   }
                 }
               : () => {
+                  if (dontShowLink) {
+                    e.preventDefault();
+                  }
                   onItemClick?.(item);
                 }
           }
-          aria-current={isCurrentPage ? 'page' : undefined}
+          aria-current={isCurrentPage ? "page" : undefined}
           aria-expanded={collapsible ? !collapsed : undefined}
-          href={collapsible ? hrefWithSSRFallback ?? '#' : hrefWithSSRFallback}
-          {...props}>
+          href={collapsible ? hrefWithSSRFallback ?? "#" : hrefWithSSRFallback}
+          {...props}
+        >
           {label}
         </Link>
-        {href && collapsible && (
+        {newHref && collapsible && (
           <CollapseButton
             categoryLabel={label}
             onClick={(e) => {

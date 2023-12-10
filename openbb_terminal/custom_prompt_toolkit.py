@@ -1,15 +1,15 @@
 """ Nestedcompleter for completion of OpenBB hierarchical data structures. """
 from typing import (
     Any,
+    Callable,
     Dict,
-    List,
-    Set,
     Iterable,
+    List,
     Mapping,
     Optional,
-    Union,
     Pattern,
-    Callable,
+    Set,
+    Union,
 )
 
 from prompt_toolkit.completion import CompleteEvent, Completer, Completion
@@ -47,12 +47,11 @@ class WordCompleter(Completer):
         ignore_case: bool = False,
         display_dict: Optional[Mapping[str, AnyFormattedText]] = None,
         meta_dict: Optional[Mapping[str, AnyFormattedText]] = None,
-        WORD: bool = False,
+        WORD: bool = True,
         sentence: bool = False,
         match_middle: bool = False,
         pattern: Optional[Pattern[str]] = None,
     ) -> None:
-
         assert not (WORD and sentence)  # noqa: S101
 
         self.words = words
@@ -131,7 +130,6 @@ class NestedCompleter(Completer):
     def __init__(
         self, options: Dict[str, Optional[Completer]], ignore_case: bool = True
     ) -> None:
-
         self.flags_processed: List = list()
         self.original_options = options
         self.options = options
@@ -188,7 +186,7 @@ class NestedCompleter(Completer):
 
         return cls(options)
 
-    def get_completions(
+    def get_completions(  # noqa: PLR0912
         self, document: Document, complete_event: CompleteEvent
     ) -> Iterable[Completion]:
         # Split document.
@@ -197,9 +195,7 @@ class NestedCompleter(Completer):
         if " " in text:
             cmd = text.split(" ")[0]
         if "-" in text:
-            if text.rfind("--") == -1:
-                unprocessed_text = "-" + text.split("-")[-1]
-            elif text.rfind("-") - 1 > text.rfind("--"):
+            if text.rfind("--") == -1 or text.rfind("-") - 1 > text.rfind("--"):
                 unprocessed_text = "-" + text.split("-")[-1]
             else:
                 unprocessed_text = "--" + text.split("--")[-1]
@@ -225,13 +221,13 @@ class NestedCompleter(Completer):
                     if cmd:
                         self.options = {
                             k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options.keys()  # type: ignore
+                            for k in self.original_options.get(cmd).options  # type: ignore
                             if k not in self.flags_processed
                         }
                     else:
                         self.options = {
                             k: self.original_options[k]
-                            for k in self.original_options.keys()
+                            for k in self.original_options
                             if k not in self.flags_processed
                         }
 
@@ -264,17 +260,16 @@ class NestedCompleter(Completer):
                 else:
                     self.options = {
                         k: self.original_options[k]
-                        for k in self.original_options.keys()
+                        for k in self.original_options
                         if k not in self.flags_processed
                     }
 
             if "-" not in text:
                 completer = self.options.get(first_term)
+            elif cmd in self.options and self.options.get(cmd):
+                completer = self.options.get(cmd).options.get(first_term)  # type: ignore
             else:
-                if cmd in self.options and self.options.get(cmd):
-                    completer = self.options.get(cmd).options.get(first_term)  # type: ignore
-                else:
-                    completer = self.options.get(first_term)
+                completer = self.options.get(first_term)
 
             # If we have a sub completer, use this for the completions.
             if completer is not None:
@@ -296,13 +291,13 @@ class NestedCompleter(Completer):
                         if cmd:
                             self.options = {
                                 k: self.original_options.get(cmd).options[k]  # type: ignore
-                                for k in self.original_options.get(cmd).options.keys()  # type: ignore
+                                for k in self.original_options.get(cmd).options  # type: ignore
                                 if k not in self.flags_processed
                             }
                         else:
                             self.options = {
                                 k: self.original_options[k]
-                                for k in self.original_options.keys()
+                                for k in self.original_options
                                 if k not in self.flags_processed
                             }
 
@@ -327,13 +322,13 @@ class NestedCompleter(Completer):
                     if cmd:
                         self.options = {
                             k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options.keys()  # type: ignore
+                            for k in self.original_options.get(cmd).options  # type: ignore
                             if k not in self.flags_processed
                         }
                     else:
                         self.options = {
                             k: self.original_options[k]
-                            for k in self.original_options.keys()
+                            for k in self.original_options
                             if k not in self.flags_processed
                         }
 
@@ -368,35 +363,32 @@ class NestedCompleter(Completer):
                     if cmd:
                         self.options = {
                             k: self.original_options.get(cmd).options[k]  # type: ignore
-                            for k in self.original_options.get(cmd).options.keys()  # type: ignore
+                            for k in self.original_options.get(cmd).options  # type: ignore
                             if k not in self.flags_processed
                         }
                     else:
                         self.options = {
                             k: self.original_options[k]
-                            for k in self.original_options.keys()
+                            for k in self.original_options
                             if k not in self.flags_processed
                         }
 
             command = self.options.get(cmd)
-            if command:
-                options = command.options  # type: ignore
-            else:
-                options = {}
-            command_options = [f"{cmd} {opt}" for opt in options.keys()]
+            options = command.options if command else {}  # type: ignore
+            command_options = [f"{cmd} {opt}" for opt in options]
             text_list = [text in val for val in command_options]
-            if cmd and cmd in self.options.keys() and text_list:
+            if cmd and cmd in self.options and text_list:
                 completer = WordCompleter(
                     list(self.options.get(cmd).options.keys()),  # type: ignore
                     ignore_case=self.ignore_case,
                 )
-            elif bool([val for val in self.options.keys() if text in val]):
+            elif bool([val for val in self.options if text in val]):
                 completer = WordCompleter(
                     list(self.options.keys()), ignore_case=self.ignore_case
                 )
             else:
                 # The user has delete part of the first command and we need to reset options
-                if bool([val for val in self.original_options.keys() if text in val]):
+                if bool([val for val in self.original_options if text in val]):
                     self.options = self.original_options
                     self.flags_processed = list()
                 completer = WordCompleter(

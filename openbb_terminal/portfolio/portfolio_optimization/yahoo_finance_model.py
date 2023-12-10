@@ -11,17 +11,38 @@ from typing import List
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from dateutil.relativedelta import relativedelta, FR
+from dateutil.relativedelta import FR, relativedelta
 
 from openbb_terminal.decorators import log_start_end
+from openbb_terminal.rich_config import console
 
 logger = logging.getLogger(__name__)
 
 # pylint: disable=R0912, E1101
 
+fast_info_map = {
+    "previousClose": "previous_close",
+    "twoHundredDayAverage": "two_hundred_day_average",
+    "regularMarketDayHigh": "day_high",
+    "averageDailyVolume10Day": "ten_day_average_volume",
+    "regularMarketPreviousClose": "regular_market_previous_close",
+    "fiftyDayAverage": "fifty_day_average",
+    "open": "open",
+    "averageVolume10days": "ten_day_average_volume",
+    "regularMarketDayLow": "day_low",
+    "currency": "currency",
+    "marketCap": "market_cap",
+    "averageVolume": "three_month_average_volume",
+    "dayLow": "day_low",
+    "volume": "last_volume",
+    "fiftyTwoWeekHigh": "year_high",
+    "fiftyTwoWeekLow": "year_low",
+    "dayHigh": "day_high",
+    "regularMarketPrice": "last_price",
+}
+
 yf_info_choices = [
     "previousClose",
-    "regularMarketOpen",
     "twoHundredDayAverage",
     "trailingAnnualDividendYield",
     "payoutRatio",
@@ -30,7 +51,6 @@ yf_info_choices = [
     "navPrice",
     "averageDailyVolume10Day",
     "totalAssets",
-    "regularMarketPreviousClose",
     "fiftyDayAverage",
     "trailingAnnualDividendRate",
     "open",
@@ -47,11 +67,9 @@ yf_info_choices = [
     "priceHint",
     "currency",
     "trailingPE",
-    "regularMarketVolume",
     "lastMarket",
     "maxSupply",
     "openInterest",
-    "marketCap",
     "volumeAllCurrencies",
     "strikePrice",
     "averageVolume",
@@ -161,10 +179,7 @@ def process_stocks(
     stock_closes = None
 
     if start_date != "":
-        if end_date == "":
-            end_ = date.today()
-        else:
-            end_ = date.fromisoformat(end_date)
+        end_ = date.today() if end_date == "" else date.fromisoformat(end_date)
 
         # Check if end date is on weekend
         if end_.weekday() >= 5:
@@ -177,7 +192,7 @@ def process_stocks(
 
         # Checking if exist
         if os.path.exists(name):
-            stock_closes_0 = pd.read_pickle(name)
+            stock_closes_0 = pd.read_pickle(name)  # noqa: S301
             list_of_stocks_0 = list(set(symbols) - set(stock_closes_0.columns))
         else:
             stock_closes_0 = None
@@ -195,79 +210,66 @@ def process_stocks(
                 group_by="ticker",
             )
 
-    else:
-        if interval in period_choices:
-            # Setting temporal file name
-            name = os.path.join(
-                path,
-                "Stocks " + interval + " " + date.today().strftime("%Y-%m-%d") + ".pkl",
-            )
+    elif interval in period_choices:
+        # Setting temporal file name
+        name = os.path.join(
+            path,
+            "Stocks " + interval + " " + date.today().strftime("%Y-%m-%d") + ".pkl",
+        )
 
-            # Creating if exist
-            if os.path.exists(name):
-                stock_closes_0 = pd.read_pickle(name)
-                list_of_stocks_0 = list(set(symbols) - set(stock_closes_0.columns))
-            else:
-                stock_closes_0 = None
-                list_of_stocks_0 = symbols
-
-            # Download assets that are not in temporal file
-            if list_of_stocks_0 == []:
-                stock_closes = stock_closes_0.copy()
-            else:
-                stock_prices = yf.download(
-                    list_of_stocks_0, period=interval, progress=False, group_by="ticker"
-                )
-
+        # Creating if exist
+        if os.path.exists(name):
+            stock_closes_0 = pd.read_pickle(name)  # noqa: S301
+            list_of_stocks_0 = list(set(symbols) - set(stock_closes_0.columns))
         else:
-            end_ = date.today()
-            if end_.weekday() >= 5:
-                end_ = end_ + relativedelta(weekday=FR(-1))
-            if interval.find("d") >= 1:
-                days = int(interval[:-1])
-                start_ = end_ - relativedelta(days=days)
-            elif interval.find("w") >= 1:
-                weeks = int(interval[:-1])
-                start_ = end_ - relativedelta(weeks=weeks)
-            elif interval.find("mo") >= 1:
-                months = int(interval[:-2])
-                start_ = end_ - relativedelta(months=months)
-            elif interval.find("y") >= 1:
-                years = int(interval[:-1])
-                start_ = end_ - relativedelta(years=years)
-            else:
-                # console.print(
-                #     "Please use an adequate interval."
-                # )
-                return None
+            stock_closes_0 = None
+            list_of_stocks_0 = symbols
 
-            start_date = start_.strftime("%Y-%m-%d")
-            end_date = end_.strftime("%Y-%m-%d")
-
-            # Creating temporal file name
-            name = os.path.join(
-                path, "Stocks " + start_date + " to " + end_date + ".pkl"
+        # Download assets that are not in temporal file
+        if list_of_stocks_0 == []:
+            stock_closes = stock_closes_0.copy()
+        else:
+            stock_prices = yf.download(
+                list_of_stocks_0, period=interval, progress=False, group_by="ticker"
             )
 
-            # Checking if temporal file exists
-            if os.path.exists(name):
-                stock_closes_0 = pd.read_pickle(name)
-                list_of_stocks_0 = list(set(symbols) - set(stock_closes_0.columns))
-            else:
-                stock_closes_0 = None
-                list_of_stocks_0 = symbols
+    else:
+        end_ = date.today()
+        if end_.weekday() >= 5:
+            end_ = end_ + relativedelta(weekday=FR(-1))
+        for item in ["d", "w", "mo", "y"]:
+            if interval.find(item) >= 1:
+                n = int(interval[: -len(item)])
+                start_ = end_ - relativedelta(days=n)
+                break
+        else:
+            return None
 
-            # Download assets that are not in temporal file
-            if list_of_stocks_0 == []:
-                stock_closes = stock_closes_0.copy()
-            else:
-                stock_prices = yf.download(
-                    list_of_stocks_0,
-                    start=start_date,
-                    end=end_date,
-                    progress=False,
-                    group_by="ticker",
-                )
+        start_date = start_.strftime("%Y-%m-%d")
+        end_date = end_.strftime("%Y-%m-%d")
+
+        # Creating temporal file name
+        name = os.path.join(path, "Stocks " + start_date + " to " + end_date + ".pkl")
+
+        # Checking if temporal file exists
+        if os.path.exists(name):
+            stock_closes_0 = pd.read_pickle(name)  # noqa: S301
+            list_of_stocks_0 = list(set(symbols) - set(stock_closes_0.columns))
+        else:
+            stock_closes_0 = None
+            list_of_stocks_0 = symbols
+
+        # Download assets that are not in temporal file
+        if list_of_stocks_0 == []:
+            stock_closes = stock_closes_0.copy()
+        else:
+            stock_prices = yf.download(
+                list_of_stocks_0,
+                start=start_date,
+                end=end_date,
+                progress=False,
+                group_by="ticker",
+            )
 
     if stock_closes is None:
         if len(list_of_stocks_0) == 1:
@@ -340,7 +342,7 @@ def process_returns(
         if s not in stock_returns.iloc[:, selected_stocks]
     ]
     if filtered_out:
-        print(
+        console.print(
             "The following stocks were filtered out, due to too many NaNs: "
             + ", ".join(filtered_out)
         )
@@ -367,12 +369,13 @@ def process_returns(
     elif freq.upper() in ["W", "M"]:
         last_day = stock_returns.index[-1]
         stock_returns = stock_returns.resample(freq).last()
-        if freq.upper() == ["W"]:
-            if last_day.weekday() < 4:
-                stock_returns = stock_returns.iloc[:-1, :]
-        if freq.upper() == ["M"]:
-            if monthrange(last_day.year, last_day.month)[1] - last_day.day <= 5:
-                stock_returns = stock_returns.iloc[:-1, :]
+        if freq.upper() == ["W"] and last_day.weekday() < 4:
+            stock_returns = stock_returns.iloc[:-1, :]
+        if (
+            freq.upper() == ["M"]
+            and monthrange(last_day.year, last_day.month)[1] - last_day.day <= 5
+        ):
+            stock_returns = stock_returns.iloc[:-1, :]
 
     # Calculate returns
     if log_returns is True:

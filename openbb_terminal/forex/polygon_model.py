@@ -3,10 +3,12 @@ __docformat__ = "numpy"
 
 from datetime import datetime
 from typing import Optional
+
 import pandas as pd
-from openbb_terminal.config_terminal import API_POLYGON_KEY as api_key
-from openbb_terminal.helper_funcs import get_user_agent, request
+
+from openbb_terminal.core.session.current_user import get_current_user
 from openbb_terminal.decorators import check_api_key
+from openbb_terminal.helper_funcs import get_user_agent, get_user_timezone, request
 from openbb_terminal.rich_config import console
 
 # pylint: disable=unsupported-assignment-operation
@@ -46,7 +48,8 @@ def get_historical(
 
     request_url = (
         f"https://api.polygon.io/v2/aggs/ticker/C:{fx_pair}/range"
-        f"/{multiplier}/{timespan}/{start_date}/{end_date}?adjusted=true&sort=desc&limit=50000&apiKey={api_key}"
+        f"/{multiplier}/{timespan}/{start_date}/{end_date}?adjusted=true&sort=desc&"
+        f"limit=50000&apiKey={get_current_user().credentials.API_POLYGON_KEY}"
     )
     json_response = request(
         request_url, headers={"User-Agent": get_user_agent()}
@@ -56,7 +59,7 @@ def get_historical(
         console.print(f"[red]{json_response['error']}[/red]\n")
         return pd.DataFrame()
 
-    if "results" not in json_response.keys():
+    if "results" not in json_response:
         console.print("[red]Error in polygon request[/red]\n")
         return pd.DataFrame()
 
@@ -74,4 +77,9 @@ def get_historical(
     historical["date"] = pd.to_datetime(historical.date, unit="ms")
     historical = historical.sort_values(by="date", ascending=True)
     historical = historical.set_index("date")
+    historical.index = (
+        historical.index.tz_localize(tz="UTC")
+        .tz_convert(get_user_timezone())
+        .tz_localize(None)
+    )
     return historical

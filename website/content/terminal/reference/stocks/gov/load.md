@@ -1,9 +1,28 @@
 ---
 title: load
-description: OpenBB Terminal Function
+description: This page provides comprehensive instructions and details on how to load
+  stock ticker for market analysis, using various parameters. Details on how to choose
+  the starting and ending date, intraday stock minutes, pre and post market hours
+  are provided. There are also instructions on how to load custom files and specific
+  frequency data such as monthly or weekly.
+keywords:
+- stock ticker
+- market analysis
+- intraday stock
+- prepost market
+- load stock data
+- analysis parameters
+- data frequency
+- load custom file
+- SBIN.NS
+- Indian ticker
+- monthly data
+- weekly data
 ---
 
-# load
+import HeadTitle from '@site/src/components/General/HeadTitle.tsx';
+
+<HeadTitle title="stocks/gov/load - Reference | OpenBB Terminal Docs" />
 
 Load stock ticker to perform analysis on. When the data source is syf', an Indian ticker can be loaded by using '.NS' at the end, e.g. 'SBIN.NS'. See available market in https://help.yahoo.com/kb/exchanges-data-providers-yahoo-finance-sln2310.html.
 
@@ -27,6 +46,5 @@ load -t TICKER [-s START] [-e END] [-i {1,5,15,30,60}] [-p] [-f FILEPATH] [-m] [
 | filepath | Path to load custom file. | None | True | None |
 | monthly | Load monthly data | False | True | None |
 | weekly | Load weekly data | False | True | None |
-| iexrange | Range for using the iexcloud api. Longer range requires more tokens in account | ytd | True | ytd, 1y, 2y, 5y, 6m |
 
 ---

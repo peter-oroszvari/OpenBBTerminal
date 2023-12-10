@@ -1,16 +1,11 @@
-from unittest import mock, TestCase
 import json
-import os
+from unittest import TestCase, mock
+
 import pytest
-
 import vcr
-from openbb_terminal.cryptocurrency.due_diligence import (
-    pycoingecko_view as dd_pycoingecko_view,
-)
 
-from openbb_terminal.cryptocurrency.cryptocurrency_helpers import (
-    load,
-)
+from openbb_terminal.cryptocurrency.cryptocurrency_helpers import load
+from openbb_terminal.cryptocurrency.due_diligence import pycoingecko_view
 from tests.helpers.helpers import check_print
 
 # pylint: disable=unused-import
@@ -21,7 +16,7 @@ pytest.skip(msg="Pycoingecko tests have not been migrated.", allow_module_level=
 @pytest.mark.vcr
 @pytest.mark.record_stdout
 def test_display_potential_returns():
-    dd_pycoingecko_view.display_coin_potential_returns(
+    pycoingecko_view.display_coin_potential_returns(
         to_symbol="algorand", from_symbol="bitcoin"
     )
 
@@ -31,7 +26,6 @@ def test_display_potential_returns():
 )
 def get_bitcoin(mock_load):
     # pylint: disable=unused-argument
-    print(os.getcwd())
     with open(
         "tests/openbb_terminal/cryptocurrency/due_diligence/json/test_pycoingecko_view/btc_usd_test_data.json",
         encoding="utf8",
@@ -53,7 +47,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_info(self):
-        dd_pycoingecko_view.display_info(self.coin, export="")
+        pycoingecko_view.display_info(self.coin, export="")
 
     @check_print(assert_in="Homepage")
     @vcr.use_cassette(
@@ -61,7 +55,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_web(self):
-        dd_pycoingecko_view.display_web(self.coin, export="")
+        pycoingecko_view.display_web(self.coin, export="")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -69,7 +63,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_social(self):
-        dd_pycoingecko_view.display_social(self.coin, export="")
+        pycoingecko_view.display_social(self.coin, export="")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -77,7 +71,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_dev(self):
-        dd_pycoingecko_view.display_dev(self.coin, export="")
+        pycoingecko_view.display_dev(self.coin, export="")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -85,7 +79,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_ath(self):
-        dd_pycoingecko_view.display_ath(self.coin, export="", currency="usd")
+        pycoingecko_view.display_ath(self.coin, export="", currency="usd")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -93,7 +87,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_atl(self):
-        dd_pycoingecko_view.display_atl(self.coin, export="", currency="usd")
+        pycoingecko_view.display_atl(self.coin, export="", currency="usd")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -101,7 +95,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_score(self):
-        dd_pycoingecko_view.display_score(self.coin, export="")
+        pycoingecko_view.display_score(self.coin, export="")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -109,7 +103,7 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_bc(self):
-        dd_pycoingecko_view.display_bc(self.coin, export="")
+        pycoingecko_view.display_bc(self.coin, export="")
 
     @check_print(assert_in="Metric")
     @vcr.use_cassette(
@@ -117,4 +111,4 @@ class TestCoinGeckoAPI(TestCase):
         record_mode="none",
     )
     def test_coin_market(self):
-        dd_pycoingecko_view.display_market(self.coin, export="")
+        pycoingecko_view.display_market(self.coin, export="")

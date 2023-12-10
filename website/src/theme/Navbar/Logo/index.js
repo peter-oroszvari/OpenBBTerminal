@@ -1,52 +1,34 @@
-import React from "react";
-import LetteringLogo from "@site/src/components/Icons/LetteringLogo";
-import clsx from "clsx";
-import { useLocation } from "@docusaurus/router";
 import Link from "@docusaurus/Link";
+import { useLocation } from "@docusaurus/router";
+import LetteringDocsLogo from "@site/src/components/Icons/LetteringDocsLogo";
+import clsx from "clsx";
+import React from "react";
+
+function getLogo(type) {
+  return <LetteringDocsLogo />;
+}
 
 export default function NavbarLogo() {
   const { pathname } = useLocation();
+  const type = pathname.length > 1 ? pathname.split("/")[1] : "home";
+  const [innerWidth, setInnerWidth] = React.useState(380);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.addEventListener("resize", () => {
+        setInnerWidth(window.innerWidth);
+
+      });
+    }
+  }
+  , []);
+
+
   return (
-    <div className="flex items-center gap-x-[56px]">
-      <Link to="/" className="ml-5 mb-1 md:mb-0 md:ml-0">
-        <LetteringLogo className="text-white" />
+    <div className={clsx("items-center ml-2", innerWidth < 380 ? "hidden" : "flex")}>
+      <Link to={`/`}>
+        {getLogo(type)}
       </Link>
-      <div
-        className={clsx(
-          "hidden p-2 border border-grey-400 rounded h-[34px] items-center bg-grey-900 gap-3",
-          {
-            "md:flex": pathname !== "/",
-          }
-        )}
-      >
-        <Link
-          to="/terminal"
-          className={clsx(
-            "text-xs rounded px-2 py-1 hover:text-white hover:no-underline",
-            {
-              "text-grey-100 bg-grey-800 ":
-                pathname.startsWith("/terminal"),
-              "text-grey-500 hover:bg-grey-800 ":
-                !pathname.startsWith("/terminal"),
-            }
-          )}
-        >
-          Terminal
-        </Link>
-        <Link
-          to="/sdk"
-          className={clsx(
-            "text-xs px-2 py-1 rounded hover:text-white hover:no-underline",
-            {
-              "text-grey-100 bg-grey-800 ": pathname.startsWith("/sdk"),
-              "text-grey-500 hover:bg-grey-800 ":
-                !pathname.startsWith("/sdk"),
-            }
-          )}
-        >
-          SDK
-        </Link>
-      </div>
     </div>
   );
 }

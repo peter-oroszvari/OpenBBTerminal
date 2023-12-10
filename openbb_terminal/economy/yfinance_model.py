@@ -5,9 +5,9 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
+import financedatabase as fd
 import pandas as pd
 import yfinance as yf
-import financedatabase as fd
 
 from openbb_terminal.decorators import log_start_end
 from openbb_terminal.rich_config import console
@@ -232,6 +232,9 @@ INDICES = {
     "cn_szse_comp": {"name": "SZSE Component Index (CNY)", "ticker": "399001.SZ"},
     "cn_szse_a": {"name": "SZSE A-Shares Index (CNY)", "ticker": "399107.SZ"},
     "tw_twii": {"name": "TSEC Weighted Index (TWD)", "ticker": "^TWII"},
+    "tw_tcii": {"name": "TSEC Cement and Ceramics Subindex (TWD)", "ticker": "^TCII"},
+    "tw_tfii": {"name": "TSEC Foods Subindex (TWD)", "ticker": "^TFII"},
+    "tw_tfni": {"name": "TSEC Finance Subindex (TWD)", "ticker": "^TFNI"},
     "tw_tpai": {"name": "TSEC Paper and Pulp Subindex (TWD)", "ticker": "^TPAI"},
     "hk_hsi": {"name": "Hang Seng Index (HKD)", "ticker": "^HSI"},
     "hk_utilities": {
@@ -248,6 +251,10 @@ INDICES = {
         "ticker": "^HSNP",
     },
     "hk_hko": {"name": "NYSE ARCA Hong Kong Options Index (USD)", "ticker": "^HKO"},
+    "hk_titans30": {
+        "name": "Dow Jones Hong Kong Titans 30 Index (HKD)",
+        "ticker": "^XLHK",
+    },
     "id_jkse": {"name": "Jakarta Composite Index (IDR)", "ticker": "^JKSE"},
     "id_lq45": {
         "name": "Indonesia Stock Exchange LQ45 Index (IDR)",
@@ -539,6 +546,7 @@ INDICES = {
     "nyse_nyl": {"name": "NYSE World Leaders Index", "ticker": "^NYL"},
     "nyse_nyi": {"name": "NYSE International 100 Index", "ticker": "^NYI"},
     "nyse_nyy": {"name": "NYSE TMT Index", "ticker": "^NYY"},
+    "nyse_fang": {"name": "NYSE FANG+TM index", "ticker": "^NYFANG"},
     "arca_xmi": {"name": "NYSE ARCA Major Market Index", "ticker": "^XMI"},
     "arca_xbd": {"name": "NYSE ARCA Securities Broker/Dealer Index", "ticker": "^XBD"},
     "arca_xii": {"name": "NYSE ARCA Institutional Index", "ticker": "^XII"},
@@ -571,7 +579,9 @@ INDICES = {
         "ticker": "^WILRESI",
     },
     "cboe_bxm": {"name": "CBOE Buy-Write Monthly Index", "ticker": "^BXM"},
-    "cboe_vix": {"name": "CBOE Volatility Index", "ticker": "^VIX"},
+    "cboe_vix": {"name": "CBOE S&P 500 Volatility Index", "ticker": "^VIX"},
+    "cboe_vix9d": {"name": "CBOE S&P 500 9-Day Volatility Index", "ticker": "^VIX9D"},
+    "cboe_vix3m": {"name": "CBOE S&P 500 3-Month Volatility Index", "ticker": "^VIX3M"},
     "cboe_vin": {"name": "CBOE Near-Term VIX Index", "ticker": "^VIN"},
     "cboe_vvix": {"name": "CBOE VIX Volatility Index", "ticker": "^VVIX"},
     "cboe_shortvol": {"name": "CBOE Short VIX Futures Index", "ticker": "^SHORTVOL"},
@@ -582,6 +592,8 @@ INDICES = {
     "cboe_tnx": {"name": "CBOE Interest Rate 10 Year T-Note", "ticker": "^TNX"},
     "cboe_tyx": {"name": "CBOE 30 year Treasury Yields", "ticker": "^TYX"},
     "cboe_irx": {"name": "CBOE 13 Week Treasury Bill", "ticker": "^IRX"},
+    "cboe_evz": {"name": "CBOE Euro Currency Volatility Index", "ticker": "^EVZ"},
+    "cboe_rvx": {"name": "CBOE Russell 2000 Volatility Index", "ticker": "^RVX"},
     "move": {"name": "ICE BofAML Move Index", "ticker": "^MOVE"},
     "dxy": {"name": "US Dollar Index", "ticker": "DX-Y.NYB"},
     "crypto200": {"name": "CMC Crypto 200 Index by Solacti", "ticker": "^CMC200"},
@@ -617,10 +629,7 @@ def get_index(
     pd.Series
         A series with the requested index
     """
-    if index.lower() in INDICES:
-        ticker = INDICES[index.lower()]["ticker"]
-    else:
-        ticker = index
+    ticker = INDICES[index.lower()]["ticker"] if index.lower() in INDICES else index
 
     try:
         if start_date:
@@ -637,7 +646,7 @@ def get_index(
         end=end_date,
         interval=interval,
         progress=False,
-        show_errors=False,
+        ignore_tz=True,
     )
 
     if column not in index_data.columns:
@@ -672,12 +681,11 @@ def get_available_indices() -> Dict[str, Dict[str, str]]:
 def get_indices(
     indices: list,
     interval: str = "1d",
-    start_date: int = None,
-    end_date: int = None,
+    start_date: Optional[int] = None,
+    end_date: Optional[int] = None,
     column: str = "Adj Close",
     returns: bool = False,
 ) -> pd.DataFrame:
-
     """Get data on selected indices over time [Source: Yahoo Finance]
 
     Parameters
@@ -722,32 +730,32 @@ def get_indices(
 
 
 @log_start_end(log=logger)
-def get_search_indices(keyword: list, limit: int = 10) -> pd.DataFrame:
+def get_search_indices(keyword: list) -> pd.DataFrame:
     """Search indices by keyword. [Source: FinanceDatabase]
 
     Parameters
     ----------
     keyword: list
         The keyword you wish to search for. This can include spaces.
-    limit: int
-        The amount of views you want to show, by default this is set to 10.
 
     Returns
     -------
     pd.Dataframe
         Dataframe with the available options.
     """
-    if isinstance(keyword, str):
-        keyword_adjusted = keyword.replace(",", " ")
-    else:
-        keyword_adjusted = " ".join(keyword)
-
-    indices = fd.select_indices()
-
-    queried_indices = pd.DataFrame.from_dict(
-        fd.search_products(indices, keyword_adjusted, "short_name"), orient="index"
+    keyword_adjusted = (
+        keyword.replace(",", " ") if isinstance(keyword, str) else " ".join(keyword)  # type: ignore
     )
 
-    queried_indices = queried_indices.iloc[:limit]
+    indices = fd.Indices()
+
+    queried_indices = indices.search(name=keyword_adjusted, exclude_exchanges=True)
+    queried_indices = pd.concat(
+        [
+            queried_indices,
+            indices.search(index=keyword_adjusted),
+        ]
+    )
+    queried_indices = queried_indices.drop_duplicates()
 
     return keyword_adjusted, queried_indices

@@ -1,12 +1,14 @@
+import logging
 import sys
 from typing import Optional
-import logging
-import os
 
 from matplotlib import pyplot
 from prompt_toolkit import PromptSession
 from prompt_toolkit.eventloop.inputhook import set_eventloop_with_inputhook
 from prompt_toolkit.history import FileHistory
+
+from openbb_terminal.core.config.paths import HIST_FILE_PATH
+from openbb_terminal.rich_config import console
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +49,10 @@ def inputhook(inputhook_context):
     return False
 
 
-history_file = os.path.join(os.path.expanduser("~"), ".openbb_terminal.his")
-
 try:
-    if not is_jupyter() and not is_papermill():
+    if sys.stdin.isatty():
         session: Optional[PromptSession] = PromptSession(
-            history=FileHistory(history_file)
+            history=FileHistory(str(HIST_FILE_PATH))
         )
         set_eventloop_with_inputhook(inputhook)
     else:
@@ -60,7 +60,7 @@ try:
 # pylint: disable=unused-variable
 except Exception as e:  # noqa: F841
     logger.exception("%s", type(e).__name__)
-    print(
+    console.print(
         "WARNING: Prompt toolkit is turned on but did not initialize successfully."
         " Falling back to input()..."
     )
